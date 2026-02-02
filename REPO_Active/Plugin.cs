@@ -1,14 +1,17 @@
-﻿using BepInEx;
+// Plugin.cs - v1.3.1 (Corrected)
+using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System;
-using System.IO;
-using System.Text;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Reflection;
+using System.Text;
 using Photon.Pun;
 using Photon.Realtime;
 using ExitGames.Client.Photon;
