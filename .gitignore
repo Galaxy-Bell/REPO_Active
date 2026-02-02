@@ -1,0 +1,22 @@
+# .NET / VS
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.pdb
+.vs/
+
+# build outputs
+REPO_Active_build/
+REPO_Active_Package/
+dist/
+*.zip
+
+# logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+.DS_Store
