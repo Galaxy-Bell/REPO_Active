@@ -1,15 +1,13 @@
-// Plugin.cs - v1.4.0
-using BepInEx;
+﻿using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
+using System.Text;
+using System.Collections.Generic;
 using System.Reflection;
 using Photon.Pun;
 using Photon.Realtime;
@@ -17,474 +15,77 @@ using ExitGames.Client.Photon;
 
 namespace REPO_Active
 {
-    [BepInPlugin("local.repo_active", "REPO_Active", "1.4.0")]
+    [BepInPlugin("local.repo_active", "REPO_Active", "1.3.1")]
     public class Plugin : BaseUnityPlugin, IOnEventCallback
     {
-        #region Config
         private ConfigEntry<bool> EnableAutoActivate;
-        private ConfigEntry<string> ActivationKey;
-        private ConfigEntry<bool> RequireDiscovered;
-        private ConfigEntry<bool> EnableDebugLog; // Step 3
-        #endregion
-
-        private static ManualLogSource BepInExLogger;
-        private static StreamWriter _fileLogger; // Step 4
-        private static bool _logToFile = false;
-
+        private ConfigEntry<string> ActivationKeyStr;
+        private ConfigEntry<bool> OnlyDiscovered;
+        private KeyCode _activationKey = KeyCode.X;
+        private static ManualLogSource Log;
         private const byte EVT_DISCOVER_POINT = 201;
-
-        #region State Machine
-        private bool _runtimeReady = false;
-        private string _lastScene = null;
-        private bool _cbRegistered = false;
-        private float _readyCheckNextAt = 0f;
-        private float _notReadyLogNextAt = 0f;
-        private float _scanNextAt = 0f;
-        private float _autoTryNextAt = 0f;
-        #endregion
-
-        #region Game State
+        private float _nextScanAt = 0f;
+        private float _nextAutoTryAt = 0f;
+        private const float SCAN_INTERVAL = 0.8f;
+        private const float AUTO_TRY_INTERVAL = 0.5f;
+        private const float DISCOVER_RADIUS = 28f;
         private bool _spawnCaptured = false;
         private Vector3 _spawnPos;
         private Transform _localPlayerTf;
-        #endregion
-
-        #region Reflection
         private Type _tExtractionPoint;
+        private Type _tStateEnum;
         private MethodInfo _mButtonPress;
+        private MethodInfo _mDiscover;
+        private MethodInfo _mStateSet;
+        private MethodInfo _mStateSetRPC;
         private FieldInfo _fIsShop;
-        private FieldInfo _fStateEnum;
         private FieldInfo _fButtonActive;
         private FieldInfo _fButtonDenyActive;
-        #endregion
-
-        #region Point State
+        private FieldInfo _fCurrentState;
+        private FieldInfo _fStateSetTo;
+        private class PointInfo { public string Id; public Component Comp; public Vector3 Pos; public float SpawnDist; }
         private readonly Dictionary<string, PointInfo> _points = new Dictionary<string, PointInfo>();
         private readonly HashSet<string> _discovered = new HashSet<string>();
         private readonly HashSet<string> _activated = new HashSet<string>();
         private string _reservedLastId = null;
-        #endregion
-
-        private class PointInfo
-        {
-            public string Id;
-            public object RawInstance; // Step 2.4
-            public Component Comp;
-            public GameObject Go;
-            public Vector3 Pos;
-            public float SpawnDist;
-        }
+        private StreamWriter _fileLog;
+        private string _logPath;
 
         private void Awake()
         {
-            BepInExLogger = Logger;
-            
-            EnableAutoActivate = Config.Bind("1. General", "EnableAutoActivate", true, "Automatically activate extraction points (Host/MasterClient only).");
-            ActivationKey = Config.Bind("1. General", "ActivationKey", "X", "Key to manually activate the next point. Must be a valid KeyCode string (e.g., X, F, Mouse0).");
-            RequireDiscovered = Config.Bind("1. General", "RequireDiscovered", true, "If true, only extraction points you have discovered will be activated.");
-            EnableDebugLog = Config.Bind("2. Debug", "EnableDebugLog", false, "Enable detailed file logging for troubleshooting.");
-            
-            EnableDebugLog.SettingChanged += (s, e) => SetupFileLogger();
-            SetupFileLogger();
-
+            Log = Logger;
+            EnableAutoActivate = Config.Bind("General", "EnableAutoActivate", true, "是否自动激活提取点（多人房间仅房主生效）");
+            ActivationKeyStr = Config.Bind("General", "ActivationKey", "X", "手动激活下一提取点的按键（例：X / F1 / Z；注意填 KeyCode 名称）");
+            OnlyDiscovered = Config.Bind("General", "OnlyDiscovered", false, "是否只对“已发现”的提取点进行激活（true=未发现则跳过；false=未发现也会进入激活队列）");
+            ParseActivationKey();
+            ActivationKeyStr.SettingChanged += (_, __) => ParseActivationKey();
+            InitFileLogger();
             InitializeReflection();
-            Log($"REPO_Active v1.4.0 Loaded. Manual key: {GetActivationKey()}");
+            LogI("REPO_Active 1.3.1 loaded. key=" + _activationKey + " auto=" + EnableAutoActivate.Value + " onlyDiscovered=" + OnlyDiscovered.Value);
         }
-
-        private void InitializeReflection()
-        {
-            _tExtractionPoint = AccessTools.TypeByName("ExtractionPoint");
-            if (_tExtractionPoint == null) { Log("Type 'ExtractionPoint' not found.", isError: true); return; }
-            
-            _mButtonPress = AccessTools.Method(_tExtractionPoint, "ButtonPress");
-            _fIsShop = AccessTools.Field(_tExtractionPoint, "isShop");
-
-            _fStateEnum = AccessTools.Field(_tExtractionPoint, "currentState")
-                          ?? AccessTools.Field(_tExtractionPoint, "stateCurrent")
-                          ?? AccessTools.Field(_tExtractionPoint, "stateSetTo")
-                          ?? AccessTools.Field(_tExtractionPoint, "state");
-
-            _fButtonActive = AccessTools.Field(_tExtractionPoint, "buttonActive");
-            _fButtonDenyActive = AccessTools.Field(_tExtractionPoint, "buttonDenyActive");
-
-            if (_mButtonPress == null) Log("Method 'ButtonPress' not found. Activation will fail.", isWarning: true);
-            if (_fStateEnum == null) Log("State field not found. Busy check will be less reliable.", isWarning: true);
-        }
-
-        #region Lifecycle & State Management
-        private void Update()
-        {
-            string currentScene = SceneManager.GetActiveScene().name;
-            if (currentScene != _lastScene)
-            {
-                Log($"Scene changed to '{currentScene}'. Resetting state.", isDebug: true);
-                _lastScene = currentScene;
-                ResetState();
-            }
-
-            if (Time.time < _readyCheckNextAt) return;
-            _readyCheckNextAt = Time.time + 0.5f;
-
-            if (IsGameplayReady())
-            {
-                if (!_runtimeReady)
-                {
-                    Log($"Runtime is now ready. Scene: '{currentScene}', Points: {Resources.FindObjectsOfTypeAll(_tExtractionPoint).Length}, InRoom: {PhotonNetwork.InRoom}, Offline: {PhotonNetwork.OfflineMode}");
-                    _runtimeReady = true;
-                }
-                
-                HandleCallbackRegistration(true);
-                MainUpdate();
-            }
-            else
-            {
-                if (_runtimeReady)
-                {
-                    Log("Gameplay is no longer ready. Disabling main logic.");
-                    _runtimeReady = false;
-                }
-            }
-        }
-        
-        private void OnDestroy() => ResetState();
-        
-        private void ResetState()
-        {
-            HandleCallbackRegistration(false);
-            _runtimeReady = false;
-            _spawnCaptured = false;
-            _localPlayerTf = null;
-            _points.Clear();
-            _discovered.Clear();
-            _activated.Clear();
-            _reservedLastId = null;
-        }
-
-        private void HandleCallbackRegistration(bool shouldBeRegistered = true)
-        {
-            if (shouldBeRegistered && PhotonNetwork.InRoom && !_cbRegistered)
-            {
-                PhotonNetwork.AddCallbackTarget(this);
-                _cbRegistered = true;
-            }
-            else if (!shouldBeRegistered && _cbRegistered)
-            {
-                PhotonNetwork.RemoveCallbackTarget(this);
-                _cbRegistered = false;
-            }
-        }
-        
-        private bool IsGameplayReady()
-        {
-            string reason = "";
-            if (string.IsNullOrEmpty(_lastScene) || new[] { "menu", "lobby", "title" }.Any(s => _lastScene.ToLower().Contains(s)))
-                reason = "Not in a gameplay scene";
-            else if (!PhotonNetwork.InRoom && !PhotonNetwork.OfflineMode)
-                reason = "Not in a room";
-            else if (Time.timeSinceLevelLoad <= 1.5f)
-                reason = "Level loading";
-            else if (_localPlayerTf == null)
-            {
-                TryResolveLocalPlayer();
-                if(_localPlayerTf == null) reason = "Player transform not found";
-            }
-            else if (Resources.FindObjectsOfTypeAll(_tExtractionPoint).Length == 0)
-                reason = "No ExtractionPoints found in scene (using FindObjectsOfTypeAll)";
-
-            if (string.IsNullOrEmpty(reason))
-            {
-                if(!_spawnCaptured) CaptureSpawn();
-                return true;
-            }
-            
-            if (Time.time > _notReadyLogNextAt)
-            {
-                Log($"[Not Ready] Reason: {reason}", isDebug: true);
-                _notReadyLogNextAt = Time.time + 5.0f;
-            }
-            return false;
-        }
-        #endregion
-
-        #region Main Logic
-        private void MainUpdate()
-        {
-            if (Time.time >= _scanNextAt)
-            {
-                _scanNextAt = Time.time + 1.0f; 
-                RefreshPoints();
-                RefreshReservedLastPoint();
-                UpdateDiscovery();
-            }
-
-            if (Input.GetKeyDown(GetActivationKey())) TryActivateNext("Manual");
-            if (EnableAutoActivate.Value && Time.time >= _autoTryNextAt)
-            {
-                _autoTryNextAt = Time.time + 1.5f;
-                TryActivateNext("Auto");
-            }
-        }
-
-        private void TryActivateNext(string reason)
-        {
-            if (PhotonNetwork.InRoom && !PhotonNetwork.IsMasterClient) return;
-
-            var candidates = _points.Values.Where(p => !_activated.Contains(p.Id) && (!RequireDiscovered.Value || _discovered.Contains(p.Id))).ToList();
-            if (IsAnyPointBusy(candidates))
-            {
-                Log($"[{reason}] Skipped: An extraction is already in progress.", isDebug: true);
-                return;
-            }
-
-            var activatable = candidates.Where(IsPointActivatable).ToList();
-            PointInfo chosen = activatable.Where(p => activatable.Count <= 1 || p.Id != _reservedLastId)
-                .OrderBy(p => Vector3.Distance(_localPlayerTf.position, p.Pos)).FirstOrDefault();
-            chosen ??= activatable.FirstOrDefault(p => p.Id == _reservedLastId);
-
-            if (chosen == null)
-            {
-                Log($"[{reason}] No activatable point found. Candidates: {candidates.Count}, Activatable: {activatable.Count}", isDebug: true);
-                return;
-            }
-
-            StartCoroutine(InvokeAndConfirmActivation(chosen, reason));
-        }
-
-        private IEnumerator InvokeAndConfirmActivation(PointInfo p, string reason)
-        {
-            string preState = GetStateName(p);
-            Log($"[{reason}] Activating {p.Id}. Pre-state: {preState ?? "N/A"}");
-            
-            if (InvokeButtonPress(p))
-            {
-                yield return new WaitForSeconds(0.5f);
-
-                string postState = GetStateName(p);
-                if (preState != postState && !(postState?.ToLowerInvariant().Contains("idle") ?? true))
-                {
-                    Log($"Activation confirmed for {p.Id}. State changed to: {postState}");
-                    _activated.Add(p.Id);
-                    BroadcastActivation(p);
-                }
-                else
-                {
-                    Log($"[WARN] ButtonPress called on {p.Id} but state remains '{postState ?? "N/A"}' (suspected failed activation).", isWarning: true);
-                }
-            }
-            else
-            {
-                Log($"[WARN] InvokeButtonPress failed for {p.Id}.", isWarning: true);
-            }
-        }
-        
-        private void BroadcastActivation(PointInfo p)
-        {
-            try
-            {
-                var view = p.Comp.GetComponent<PhotonView>();
-                if (view != null)
-                {
-                    Log($"Attempting best-effort broadcast for {p.Id}...", isDebug: true);
-                    view.RPC("ButtonGoGreenRPC", RpcTarget.All);
-
-                    var nestedType = _tExtractionPoint.GetNestedType("State", BindingFlags.Public | BindingFlags.NonPublic);
-                    if (nestedType != null)
-                    {
-                        var activeVal = Enum.Parse(nestedType, "Active");
-                        view.RPC("StateSetRPC", RpcTarget.All, activeVal);
-                    }
-                    Log("Best-effort RPCs sent.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"Failed to send best-effort RPCs for {p.Id}: {ex.Message}", isWarning: true);
-            }
-        }
-        #endregion
-
-        #region Helpers & State Checks
-        private bool IsAnyPointBusy(List<PointInfo> points)
-        {
-            if (_fStateEnum == null) return false;
-            var busyKeywords = new[] { "extracting", "active", "warning", "countdown" };
-            foreach (var p in points)
-            {
-                var stateName = GetStateName(p)?.ToLowerInvariant();
-                if (!string.IsNullOrEmpty(stateName) && busyKeywords.Any(k => stateName.Contains(k))) return true;
-            }
-            return false;
-        }
-
-        private bool IsPointActivatable(PointInfo p)
-        {
-            if (p?.Comp == null) return false;
-            
-            var stateName = GetStateName(p)?.ToLowerInvariant();
-            if (!string.IsNullOrEmpty(stateName) && !(stateName.Contains("idle") || stateName.Contains("none"))) return false;
-            
-            if (_fButtonActive != null && (_fButtonActive.GetValue(p.Comp) as bool? ?? true) == false) return false;
-            if (_fButtonDenyActive != null && (_fButtonDenyActive.GetValue(p.Comp) as bool? ?? false) == true) return false;
-            
-            return true;
-        }
-
-        private void UpdateDiscovery()
-        {
-            if (!RequireDiscovered.Value || _localPlayerTf == null) return;
-            foreach (var p in _points.Values)
-            {
-                if (!_discovered.Contains(p.Id) && Vector3.Distance(_localPlayerTf.position, p.Pos) <= 55f)
-                    MarkDiscoveredAndBroadcast(p);
-            }
-        }
-
-        private void MarkDiscoveredAndBroadcast(PointInfo p)
-        {
-            if (p == null || !_discovered.Add(p.Id)) return;
-            Log($"Discovered {p.Id}, broadcasting event.");
-            PhotonNetwork.RaiseEvent(EVT_DISCOVER_POINT, new object[] { p.Id }, new RaiseEventOptions { Receivers = ReceiverGroup.All }, SendOptions.SendReliable);
-        }
-
-        public void OnEvent(EventData photonEvent)
-        {
-            if (photonEvent.Code != EVT_DISCOVER_POINT) return;
-            if (!(photonEvent.CustomData is object[] data) || data.Length == 0) return;
-            if (!(data[0] is string id) || string.IsNullOrEmpty(id)) return;
-            if (_discovered.Add(id)) Log($"Received discovery event for point: {id}");
-        }
-        #endregion
-
-        #region Utility
-        private void TryResolveLocalPlayer()
-        {
-            if(Camera.main != null && Camera.main.isActiveAndEnabled)
-            {
-                 _localPlayerTf = Camera.main.transform;
-                 Log("Local player resolved via Camera.main.", isDebug: true);
-                 return;
-            }
-            
-            try
-            {
-                if (PhotonNetwork.LocalPlayer != null)
-                {
-                    var playerGo = PhotonNetwork.LocalPlayer.TagObject as GameObject;
-                    if(playerGo != null)
-                    {
-                        _localPlayerTf = playerGo.transform;
-                        Log($"Local player resolved via PhotonNetwork.LocalPlayer: {playerGo.name}", isDebug: true);
-                        return;
-                    }
-                }
-            } catch {}
-
-            Log("Could not resolve local player in this pass.", isDebug: true);
-        }
-
-        private void CaptureSpawn()
-        {
-            if (_localPlayerTf == null) return;
-            _spawnPos = _localPlayerTf.position;
-            _spawnCaptured = true;
-            Log($"Spawn point captured: {_spawnPos}");
-        }
-
-        private void RefreshPoints()
-        {
-            var objs = Resources.FindObjectsOfTypeAll(_tExtractionPoint);
-            if (objs.Length == _points.Count && _points.Count > 0) return;
-
-            _points.Clear();
-            foreach (var o in objs)
-            {
-                var comp = o as Component;
-                if (comp == null || (_fIsShop != null && (_fIsShop.GetValue(o) as bool? ?? false))) continue;
-                
-                string id = MakePointId(comp.gameObject);
-                _points[id] = new PointInfo
-                {
-                    Id = id, RawInstance = o, Comp = comp, Go = comp.gameObject, Pos = comp.transform.position,
-                    SpawnDist = _spawnCaptured ? Vector3.Distance(_spawnPos, comp.transform.position) : float.MaxValue
-                };
-            }
-            if (!RequireDiscovered.Value)
-                foreach (var id in _points.Keys) _discovered.Add(id);
-            Log($"Refreshed points. Total: {_points.Count}, Discovered: {_discovered.Count}", isDebug: true);
-        }
-
-        private void RefreshReservedLastPoint()
-        {
-            if (!_spawnCaptured || _points.Count == 0) return;
-            bool needsNew = string.IsNullOrEmpty(_reservedLastId) || !_points.ContainsKey(_reservedLastId) || _activated.Contains(_reservedLastId);
-            if (needsNew)
-            {
-                _reservedLastId = _points.Values
-                    .Where(p => !_activated.Contains(p.Id))
-                    .OrderBy(p => p.SpawnDist)
-                    .FirstOrDefault()?.Id;
-                if(!string.IsNullOrEmpty(_reservedLastId)) Log($"New reserved last point: {_reservedLastId}", isDebug: true);
-            }
-        }
-        
-        private string GetStateName(PointInfo p) => p?.Comp != null && _fStateEnum != null ? _fStateEnum.GetValue(p.Comp)?.ToString() : null;
-        private KeyCode GetActivationKey() => Enum.TryParse<KeyCode>(ActivationKey.Value, true, out var key) ? key : KeyCode.X;
-        private bool InvokeButtonPress(PointInfo p)
-        {
-            if (p?.RawInstance == null || _mButtonPress == null) return false;
-            try { _mButtonPress.Invoke(p.RawInstance, null); return true; }
-            catch (Exception ex) { Log($"InvokeButtonPress exception: {ex.Message}", isWarning: true); return false; }
-        }
-        private string MakePointId(GameObject go)
-        {
-            var pos = go.transform.position;
-            int x = Mathf.RoundToInt(pos.x * 100f);
-            int y = Mathf.RoundToInt(pos.y * 100f);
-            int z = Mathf.RoundToInt(pos.z * 100f);
-            return $"{_lastScene}:{go.name}:{x}_{y}_{z}";
-        }
-        #endregion
-
-        #region Logging
-        private void SetupFileLogger()
-        {
-            if (EnableDebugLog.Value && _fileLogger == null)
-            {
-                try
-                {
-                    string logDir = Path.Combine(Paths.PluginPath, "REPO_Active", "_logs");
-                    Directory.CreateDirectory(logDir);
-                    string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                    string logFile = Path.Combine(logDir, $"REPO_Active_v1.4.0_{timestamp}.log");
-                    _fileLogger = new StreamWriter(logFile, true) { AutoFlush = true };
-                    _logToFile = true;
-                    Log("File logging enabled.");
-                }
-                catch(Exception ex)
-                {
-                    BepInExLogger.LogError($"Failed to initialize file logger: {ex.Message}");
-                }
-            }
-            else if (!EnableDebugLog.Value && _fileLogger != null)
-            {
-                Log("File logging disabled.");
-                _fileLogger.Close();
-                _fileLogger = null;
-                _logToFile = false;
-            }
-        }
-
-        private void Log(string message, bool isDebug = false, bool isWarning = false, bool isError = false)
-        {
-            if (isError) BepInExLogger.LogError(message);
-            else if (isWarning) BepInExLogger.LogWarning(message);
-            else BepInExLogger.LogInfo(message);
-            
-            if (_logToFile && (isDebug || isWarning || isError))
-            {
-                _fileLogger?.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {message}");
-            }
-        }
-        #endregion
+        private void OnEnable() { try { PhotonNetwork.AddCallbackTarget(this); } catch { } }
+        private void OnDisable() { try { PhotonNetwork.RemoveCallbackTarget(this); } catch { } }
+        private void OnDestroy() { try { if (_fileLog != null) { _fileLog.Flush(); _fileLog.Dispose(); _fileLog = null; } } catch { } }
+        private void ParseActivationKey() { if (Enum.TryParse<KeyCode>((ActivationKeyStr.Value ?? "X").Trim(), true, out var k)) _activationKey = k; else _activationKey = KeyCode.X; }
+        private void InitFileLogger() { try { var dir = Path.Combine(Paths.ConfigPath, "REPO_Active", "logs"); Directory.CreateDirectory(dir); var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss"); _logPath = Path.Combine(dir, $"REPO_Active_{stamp}.log"); _fileLog = new StreamWriter(_logPath, false, new UTF8Encoding(false)) { AutoFlush = true }; LogI("FileLog: " + _logPath); } catch (Exception e) { Log.LogWarning("InitFileLogger failed: " + e.Message); } }
+        private void LogI(string msg) { Log.LogInfo(msg); try { _fileLog?.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}"); } catch { } }
+        private void LogW(string msg) { Log.LogWarning(msg); try { _fileLog?.WriteLine($"[{DateTime.Now:HH:mm:ss}] [W] {msg}"); } catch { } }
+        private void LogE(string msg) { Log.LogError(msg); try { _fileLog?.WriteLine($"[{DateTime.Now:HH:mm:ss}] [E] {msg}"); } catch { } }
+        private void InitializeReflection() { try { _tExtractionPoint = AccessTools.TypeByName("ExtractionPoint") ?? Type.GetType("ExtractionPoint, Assembly-CSharp"); if (_tExtractionPoint == null) { LogE("Type not found: ExtractionPoint. Mod disabled."); return; } _tStateEnum = AccessTools.Inner(_tExtractionPoint, "State"); if (_tStateEnum == null) { LogW("Inner enum not found: ExtractionPoint+State. Will fallback to ButtonPress only."); } _mButtonPress = AccessTools.Method(_tExtractionPoint, "ButtonPress"); _mDiscover = AccessTools.Method(_tExtractionPoint, "Discover"); _mStateSet = AccessTools.Method(_tExtractionPoint, "StateSet"); _mStateSetRPC = AccessTools.Method(_tExtractionPoint, "StateSetRPC"); _fIsShop = AccessTools.Field(_tExtractionPoint, "isShop"); _fButtonActive = AccessTools.Field(_tExtractionPoint, "buttonActive"); _fButtonDenyActive = AccessTools.Field(_tExtractionPoint, "buttonDenyActive"); _fCurrentState = AccessTools.Field(_tExtractionPoint, "currentState"); _fStateSetTo = AccessTools.Field(_tExtractionPoint, "stateSetTo"); LogI("Reflection OK: ButtonPress=" + (_mButtonPress != null) + " StateSet=" + (_mStateSet != null) + " StateSetRPC=" + (_mStateSetRPC != null) + " currentStateField=" + (_fCurrentState != null)); } catch (Exception e) { LogE("InitializeReflection failed: " + e); } }
+        public void OnEvent(EventData photonEvent) { if (photonEvent == null) return; if (photonEvent.Code != EVT_DISCOVER_POINT) return; try { var data = photonEvent.CustomData as object[]; if (data == null || data.Length < 1) return; var id = data[0] as string; if (string.IsNullOrEmpty(id)) return; _discovered.Add(id); } catch (Exception e) { LogW("OnEvent parse failed: " + e.Message); } }
+        private void Update() { if (_tExtractionPoint == null) return; if (Input.GetKeyDown(_activationKey)) { TryActivateNext("manual"); } if (Time.time >= _nextScanAt) { _nextScanAt = Time.time + SCAN_INTERVAL; EnsureLocalPlayer(); CaptureSpawnIfNeeded(); RefreshPoints(); RefreshReservedLastPoint(); if (OnlyDiscovered.Value) UpdateDiscovery(); } if (EnableAutoActivate.Value && Time.time >= _nextAutoTryAt) { _nextAutoTryAt = Time.time + AUTO_TRY_INTERVAL; TryActivateNext("auto"); } }
+        private void EnsureLocalPlayer() { if (_localPlayerTf != null) return; try { var views = Resources.FindObjectsOfTypeAll<PhotonView>(); foreach (var v in views) { if (v == null) continue; if (!v.IsMine) continue; _localPlayerTf = v.transform; return; } } catch { } try { var cam = Camera.main; if (cam != null) _localPlayerTf = cam.transform; } catch { } }
+        private void CaptureSpawnIfNeeded() { if (_spawnCaptured) return; if (_localPlayerTf == null) return; _spawnCaptured = true; _spawnPos = _localPlayerTf.position; LogI("Spawn captured: " + _spawnPos); }
+        private void RefreshPoints() { _points.Clear(); var objs = Resources.FindObjectsOfTypeAll(_tExtractionPoint); foreach (var o in objs) { var comp = o as Component; if (comp == null) continue; if (_fIsShop != null) { try { var v = _fIsShop.GetValue(o); if (v is bool b && b) continue; } catch { } } var pos = comp.transform.position; var id = MakePointId(pos); var pi = new PointInfo { Id = id, Comp = comp, Pos = pos, SpawnDist = _spawnCaptured ? Vector3.Distance(_spawnPos, pos) : float.MaxValue }; _points[id] = pi; if (!OnlyDiscovered.Value) _discovered.Add(id); } }
+        private void RefreshReservedLastPoint() { if (!_spawnCaptured) return; if (_points.Count == 0) return; if (!string.IsNullOrEmpty(_reservedLastId)) { if (_activated.Contains(_reservedLastId) || !_points.ContainsKey(_reservedLastId)) _reservedLastId = null; } if (string.IsNullOrEmpty(_reservedLastId)) { float best = float.MaxValue; string bestId = null; foreach (var kv in _points) { var id = kv.Key; var p = kv.Value; if (_activated.Contains(id)) continue; if (p.SpawnDist < best) { best = p.SpawnDist; bestId = id; } } _reservedLastId = bestId; } }
+        private void UpdateDiscovery() { if (_localPlayerTf == null) return; foreach (var kv in _points) { var p = kv.Value; if (_discovered.Contains(p.Id)) continue; if (Vector3.Distance(_localPlayerTf.position, p.Pos) <= DISCOVER_RADIUS) { MarkDiscoveredAndBroadcast(p); } } }
+        private void MarkDiscoveredAndBroadcast(PointInfo p) { if (p == null) return; if (_discovered.Contains(p.Id)) return; _discovered.Add(p.Id); TryInvokeDiscoverLocal(p.Comp); try { if (PhotonNetwork.InRoom) { object[] payload = new object[] { p.Id, p.Pos.x, p.Pos.y, p.Pos.z }; var opt = new RaiseEventOptions { Receivers = ReceiverGroup.All }; PhotonNetwork.RaiseEvent(EVT_DISCOVER_POINT, payload, opt, SendOptions.SendReliable); } } catch { } }
+        private void TryActivateNext(string reason) { if (PhotonNetwork.InRoom && !PhotonNetwork.IsMasterClient) { LogI($"[{reason}] Not MasterClient, skip activation."); return; } if (_points.Count == 0) return; var candidates = new List<PointInfo>(); foreach (var kv in _points) { var p = kv.Value; if (_activated.Contains(p.Id)) continue; if (OnlyDiscovered.Value && !_discovered.Contains(p.Id)) continue; if (IsPointActivatableNow(p.Comp)) candidates.Add(p); } if (candidates.Count == 0) { return; } var curPos = (_localPlayerTf != null) ? _localPlayerTf.position : Vector3.zero; PointInfo chosen = null; float best = float.MaxValue; foreach (var p in candidates) { if (!string.IsNullOrEmpty(_reservedLastId) && p.Id == _reservedLastId && candidates.Count > 1) continue; var d = Vector3.Distance(curPos, p.Pos); if (d < best) { best = d; chosen = p; } } if (chosen == null) { foreach (var p in candidates) { if (p.Id == _reservedLastId) { chosen = p; break; } } } if (chosen == null) return; bool ok = ActivatePoint(chosen.Comp); if (ok) { _activated.Add(chosen.Id); LogI($"[{reason}] Activated: {chosen.Id} pos={chosen.Pos}"); } else { LogW($"[{reason}] Activate failed (no state change): {chosen.Id} pos={chosen.Pos}"); } }
+        private bool IsPointActivatableNow(Component comp) { if (comp == null) return false; if (_fButtonDenyActive != null) { try { var v = _fButtonDenyActive.GetValue(comp); if (v is bool b && b) return false; } catch { } } if (_fButtonActive != null) { try { var v = _fButtonActive.GetValue(comp); if (v is bool b && !b) return false; } catch { } } var st = GetCurrentStateName(comp); if (!string.IsNullOrEmpty(st)) { var s = st.ToLowerInvariant(); if (!s.Contains("idle")) return false; } return true; }
+        private string GetCurrentStateName(Component comp) { if (comp == null) return null; if (_fCurrentState == null) return null; try { var v = _fCurrentState.GetValue(comp); return v?.ToString(); } catch { return null; } }
+        private bool ActivatePoint(Component comp) { if (comp == null) return false; if (PhotonNetwork.InRoom) { try { var pv = comp.GetComponent<PhotonView>(); if (pv != null && _mStateSetRPC != null && _tStateEnum != null) { TryInvokeDiscoverRPC(pv); object activeState = Enum.Parse(_tStateEnum, "Active"); pv.RPC("StateSetRPC", RpcTarget.All, activeState); return true; } } catch (Exception e) { LogW("RPC activate failed, fallback local: " + e.Message); } } try { if (_mStateSet != null && _tStateEnum != null) { TryInvokeDiscoverLocal(comp); object activeState = Enum.Parse(_tStateEnum, "Active"); _mStateSet.Invoke(comp, new object[] { activeState }); var st = GetCurrentStateName(comp); if (!string.IsNullOrEmpty(st) && !st.ToLowerInvariant().Contains("idle")) return true; return true; } } catch (Exception e) { LogW("StateSet activate failed, fallback ButtonPress: " + e.Message); } try { if (_mButtonPress != null) { _mButtonPress.Invoke(comp, null); return true; } } catch (Exception e) { LogW("ButtonPress invoke failed: " + e.Message); } return false; }
+        private void TryInvokeDiscoverLocal(Component comp) { try { if (_mDiscover != null) _mDiscover.Invoke(comp, null); } catch { } }
+        private void TryInvokeDiscoverRPC(PhotonView pv) { try { pv.RPC("Discover", RpcTarget.All); } catch { } }
+        private string MakePointId(Vector3 pos) { var scene = SceneManager.GetActiveScene().name ?? "scene"; int x = Mathf.RoundToInt(pos.x * 10f); int y = Mathf.RoundToInt(pos.y * 10f); int z = Mathf.RoundToInt(pos.z * 10f); return $"{scene}:{x}_{y}_{z}"; }
     }
 }

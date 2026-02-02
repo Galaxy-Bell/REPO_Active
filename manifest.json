@@ -1,0 +1,7 @@
+﻿{
+  "name": "REPO_Active",
+  "version_number": "1.3.1",
+  "website_url": "https://github.com/Galaxy-Bell/REPO_Active",
+  "description": "Auto/Manual activation for extraction points. Host activates via RPC. Discovery sync supported.",
+  "dependencies": []
+}
