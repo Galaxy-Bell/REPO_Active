@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 $version = "1.3.1"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $proj = Join-Path $repoRoot "REPO_Active\REPO_Active.csproj"
