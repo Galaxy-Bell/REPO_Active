@@ -1,0 +1,5 @@
+C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.0\REPO_Active.csproj.AssemblyReference.cache
+C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.0\REPO_Active.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.0\REPO_Active.AssemblyInfoInputs.cache
+C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.0\REPO_Active.AssemblyInfo.cs
+C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.0\REPO_Active.csproj.CoreCompileInputs.cache

@@ -1,0 +1,72 @@
+{
+  "format": 1,
+  "restore": {
+    "C:\\Users\\Home\\Desktop\\REPO_Active_3.5.3\\src\\REPO_Active\\REPO_Active.csproj": {}
+  },
+  "projects": {
+    "C:\\Users\\Home\\Desktop\\REPO_Active_3.5.3\\src\\REPO_Active\\REPO_Active.csproj": {
+      "version": "3.5.3",
+      "restore": {
+        "projectUniqueName": "C:\\Users\\Home\\Desktop\\REPO_Active_3.5.3\\src\\REPO_Active\\REPO_Active.csproj",
+        "projectName": "REPO_Active",
+        "projectPath": "C:\\Users\\Home\\Desktop\\REPO_Active_3.5.3\\src\\REPO_Active\\REPO_Active.csproj",
+        "packagesPath": "C:\\Users\\Home\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\Home\\Desktop\\REPO_Active_3.5.3\\src\\REPO_Active\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\Home\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "netstandard2.1"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "netstandard2.1": {
+            "targetAlias": "netstandard2.1",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "netstandard2.1": {
+          "targetAlias": "netstandard2.1",
+          "dependencies": {
+            "BepInEx.Core": {
+              "target": "Package",
+              "version": "[5.4.21, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "NETStandard.Library": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.417\\RuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

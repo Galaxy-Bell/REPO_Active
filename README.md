@@ -1,16 +1,22 @@
-﻿# REPO_Active
+﻿# REPO_Active 3.5.3
 
-(Main README content should be here)
+## What changed
+- Replace activation with: Reflection call to `ExtractionPoint.OnClick()` (F3-like native click path).
+- Queue and nearest activation both support excluding spawn-nearest extraction point.
+- Designed to preserve "far activation" + "broadcast" behavior (native OnClick path).
 
-## Logging
-This mod now creates a detailed log file to help with troubleshooting.
-- **Log Directory:** BepInEx\config\REPO_Active\logs\
-- **Log File:** A new file named REPO_Active_{timestamp}.log is created each time the game starts.
-If you encounter issues, please upload this log file to the GitHub repository's 	est-logs directory.
+## Keybinds
+- F3: Activate nearest EP (excluded spawn-nearest if enabled)
+- F4: Build queue (sorted by distance) and activate sequentially
 
----
-## Logging & Troubleshooting
-This mod creates a detailed log file to help with troubleshooting.
-- **Log Directory:** BepInEx\config\REPO_Active\logs\
-- **Log File:** A new file named REPO_Active_{timestamp}.log is created each time the game starts.
-If you encounter issues where activation does not work, please check this log file for messages like [Not Ready], [manual] Skipped: ..., or [auto] No activatable point found. This will help identify the cause.
+## Build
+1. Open `src/REPO_Active/REPO_Active.csproj`
+2. Set `UnityManagedPath` to:
+   `...\REPO\REPO_Data\Managed`
+3. Build `Release`
+4. Put `REPO_Active.dll` into:
+   `BepInEx/plugins/REPO_Active/REPO_Active.dll`
+
+## Runtime Config
+Generated at:
+`BepInEx/config/angelcomilk.repo_active.cfg`
