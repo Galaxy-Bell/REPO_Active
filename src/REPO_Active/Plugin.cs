@@ -14,7 +14,7 @@ namespace REPO_Active
     {
         public const string PluginGuid = "angelcomilk.repo_active";
         public const string PluginName = "REPO_Active";
-        public const string PluginVersion = "3.5.3";
+        public const string PluginVersion = "3.5.4";
 
         // ---- config ----
         private ConfigEntry<KeyCode> _keyActivateNearest = null!;
@@ -82,26 +82,43 @@ namespace REPO_Active
 
             _scanner.ScanIfNeeded(force: true);
 
-            var refPos = _scanner.GetReferencePos();
-            if (_excludeSpawnNearest.Value)
-                _scanner.UpdateSpawnExcludeIfNeeded(refPos, _spawnExcludeRadius.Value);
-
-            var nearest = _scanner.FindNearest(refPos,
-                excludeSpawn: _excludeSpawnNearest.Value,
-                spawnExcludeRadius: _spawnExcludeRadius.Value,
-                skipActivated: _skipAlreadyActivated.Value);
-
-            if (nearest == null)
+            // 1) 必须没有任何提取点处于激活中
+            var allPoints = _scanner.ScanAndGetAllPoints();
+            if (_scanner.IsAnyExtractionPointActivating(allPoints))
             {
-                Logger.LogWarning("No eligible extraction point found.");
+                Logger.LogWarning("有提取点正在激活中，F3 忽略");
                 return;
             }
 
-            Logger.LogInfo($"[F3] Activate nearest EP: {nearest.gameObject.name} pos={nearest.transform.position} dist={Vector3.Distance(refPos, nearest.transform.position):0.00}");
+            // 2) spawnPos + startPos
+            var startPos = _scanner.GetReferencePos();
+            if (_excludeSpawnNearest.Value)
+                _scanner.UpdateSpawnExcludeIfNeeded(startPos, _spawnExcludeRadius.Value);
+            var spawnPos = _scanner.GetSpawnPos();
 
-            if (_invoker.InvokeOnClick(nearest))
+            // 3) SpawnGate 阻塞
+            if (_scanner.IsSpawnGateBlocking(allPoints))
             {
-                _scanner.MarkActivated(nearest);
+                Logger.LogWarning("出生点最近提取点未提交完成，禁止激活其他点");
+                return;
+            }
+
+            // 4) 构建规划列表
+            var plan = _scanner.BuildStage1PlannedList(allPoints, spawnPos, startPos, skipActivated: true);
+            if (plan.Count == 0)
+            {
+                Logger.LogWarning("没有可激活的提取点（SpawnGate 已排除/或都已激活）");
+                return;
+            }
+
+            var next = plan[0];
+
+            // 5) 激活方式不改：仍走 OnClick invoker
+            Logger.LogInfo($"[F3] Activate planned EP: {next.gameObject.name} pos={next.transform.position} dist={Vector3.Distance(startPos, next.transform.position):0.00}");
+
+            if (_invoker.InvokeOnClick(next))
+            {
+                _scanner.MarkActivated(next);
             }
         }
 

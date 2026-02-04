@@ -12,11 +12,11 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("REPO_Active")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("3.5.3.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("3.5.3")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("3.5.4.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("3.5.4")]
 [assembly: System.Reflection.AssemblyProductAttribute("REPO_Active")]
 [assembly: System.Reflection.AssemblyTitleAttribute("REPO_Active")]
-[assembly: System.Reflection.AssemblyVersionAttribute("3.5.3.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("3.5.4.0")]
 
 // 由 MSBuild WriteCodeFragment 类生成。
 

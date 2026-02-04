@@ -1,4 +1,4 @@
-﻿# REPO_Active 3.5.3
+﻿# REPO_Active 3.5.4
 
 ## What changed
 - Replace activation with: Reflection call to `ExtractionPoint.OnClick()` (F3-like native click path).
@@ -20,3 +20,4 @@
 ## Runtime Config
 Generated at:
 `BepInEx/config/angelcomilk.repo_active.cfg`
+
