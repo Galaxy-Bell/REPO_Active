@@ -1,23 +1,33 @@
-﻿# REPO_Active 3.5.4
+﻿# REPO_Active 4.5.0
 
-## What changed
-- Replace activation with: Reflection call to `ExtractionPoint.OnClick()` (F3-like native click path).
-- Queue and nearest activation both support excluding spawn-nearest extraction point.
-- Designed to preserve "far activation" + "broadcast" behavior (native OnClick path).
+A lightweight BepInEx plugin that remotely activates extraction points using the game’s native `ExtractionPoint.OnClick()` path. This preserves full in‑game feedback (broadcast, markers, money, etc.) while supporting manual activation and optional auto‑activation with discovery filtering.
+
+## Features
+- **Native activation**: calls `ExtractionPoint.OnClick()` via reflection (same chain as in‑game click).
+- **Planned order**: the extraction point closest to spawn is always the first target; the rest follow a nearest‑neighbor plan.
+- **Safe gating**: activates only when no other extraction point is currently active.
+- **Discovery filter**: when `DiscoverAllPoints=false`, only discovered points are eligible.
+- **Multiplayer (host)**: host uses all players’ positions (PhotonView objects) to mark discoveries.
 
 ## Keybinds
-- F3: Activate nearest EP (excluded spawn-nearest if enabled)
-- F4: Build queue (sorted by distance) and activate sequentially
+- **F3**: Activate next extraction point (planned list)
 
-## Build
-1. Open `src/REPO_Active/REPO_Active.csproj`
-2. Set `UnityManagedPath` to:
-   `...\REPO\REPO_Data\Managed`
-3. Build `Release`
-4. Put `REPO_Active.dll` into:
-   `BepInEx/plugins/REPO_Active/REPO_Active.dll`
-
-## Runtime Config
+## Configuration
 Generated at:
-`BepInEx/config/angelcomilk.repo_active.cfg`
+`BepInEx\config\angelcomilk.repo_active.cfg`
 
+- `AutoActivate` (bool): Auto‑activate at a fixed interval.
+- `ActivateNearest` (KeyCode): Manual activation key (default F3).
+- `DiscoverAllPoints` (bool): If true, treat all points as discovered.
+
+## Installation (r2modman)
+1. Import the zip in r2modman.
+2. Ensure the DLL is placed under:
+   `BepInEx\plugins\REPO_Active\REPO_Active.dll`
+
+## Notes
+- Multiplayer discovery is **host‑side**; clients do not run the player‑position aggregation.
+- Discovery interval is fixed once per round based on player count for performance.
+
+## Credits
+Author: **AngelcoMilk-天使棉**

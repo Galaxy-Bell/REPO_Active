@@ -21,12 +21,14 @@ namespace REPO_Active.Runtime
         private int? _spawnExcludedInstanceId;
 
         private readonly HashSet<int> _activatedIds = new();
+        private readonly HashSet<int> _discovered = new();
 
         // =====================
         // Stage1: planning helpers
         // =====================
 
         private int _spawnGateInstanceId = 0; // 出生点门口最近的提取点（永远排除 + 阻塞）
+        private float _blockUntil = -1f;
 
         public float RescanCooldown { get; set; }
         public bool Verbose { get; set; }
@@ -37,6 +39,7 @@ namespace REPO_Active.Runtime
             _invoker = invoker;
             RescanCooldown = rescanCooldown;
             Verbose = verbose;
+            _blockUntil = Time.realtimeSinceStartup + 10f;
         }
 
         public bool EnsureReady()
@@ -99,15 +102,75 @@ namespace REPO_Active.Runtime
             return Vector3.zero;
         }
 
+        public void MarkAllDiscovered(List<Component> allPoints)
+        {
+            for (int i = 0; i < allPoints.Count; i++)
+            {
+                var ep = allPoints[i];
+                if (!ep) continue;
+                _discovered.Add(ep.GetInstanceID());
+            }
+        }
+
+        public void UpdateDiscovered(Vector3 refPos, float radius)
+        {
+            if (_cached.Count == 0) return;
+
+            for (int i = 0; i < _cached.Count; i++)
+            {
+                var ep = _cached[i];
+                if (!ep) continue;
+                var id = ep.GetInstanceID();
+                if (_discovered.Contains(id)) continue;
+
+                var d = Vector3.Distance(refPos, ep.transform.position);
+                if (d <= radius)
+                    _discovered.Add(id);
+            }
+        }
+
+        public List<Component> FilterDiscovered(List<Component> allPoints)
+        {
+            var list = new List<Component>();
+            for (int i = 0; i < allPoints.Count; i++)
+            {
+                var ep = allPoints[i];
+                if (!ep) continue;
+                if (_discovered.Contains(ep.GetInstanceID()))
+                    list.Add(ep);
+            }
+            return list;
+        }
+
         public Vector3 GetSpawnPos()
         {
             return _spawnPos ?? Vector3.zero;
+        }
+
+        public void CaptureSpawnPosIfNeeded(Vector3 refPos)
+        {
+            if (_spawnPos != null) return;
+            if (refPos == Vector3.zero) return;
+            _spawnPos = refPos;
+            if (Verbose)
+                _log.LogInfo($"[SPAWN] spawnPos captured: {_spawnPos.Value}");
         }
 
         public List<Component> ScanAndGetAllPoints()
         {
             ScanIfNeeded(force: true);
             return _cached.Where(c => c != null).ToList();
+        }
+
+        public void ResetForNewRound()
+        {
+            _cached.Clear();
+            _activatedIds.Clear();
+            _discovered.Clear();
+            _spawnPos = null;
+            _spawnExcludedInstanceId = null;
+            _spawnGateInstanceId = 0;
+            _lastScanRealtime = 0f;
         }
 
         public void UpdateSpawnExcludeIfNeeded(Vector3 refPos, float spawnExcludeRadius)
@@ -300,11 +363,47 @@ namespace REPO_Active.Runtime
         /// </summary>
         public bool IsSpawnGateBlocking(List<Component> allPoints)
         {
-            var gate = GetSpawnGatePoint(allPoints);
-            if (!gate) return false; // 没有识别到 gate，就不阻塞（避免死锁）
+            // 默认阻塞启动窗口（避免早期识别失败导致误放行/误阻塞）
+            if (Time.realtimeSinceStartup < _blockUntil)
+                return true;
 
-            // 关键：只要未提交完成，就阻塞
-            return !IsExtractionPointSubmitted(gate);
+            // 如果还没捕获到 spawnPos，先不阻塞，避免死锁
+            if (_spawnPos == null) return false;
+
+            // 确保每次阻塞判断都刷新一次 SpawnGate
+            if (allPoints != null && allPoints.Count > 0)
+                UpdateSpawnGateAlwaysNearest(allPoints, _spawnPos.Value);
+
+            var gate = GetSpawnGatePoint(allPoints);
+            // 默认阻塞：未识别到 gate 时也阻塞，直到能确认 gate 已提交完成
+            if (!gate) return false;
+
+            // 已提交完成则不阻塞
+            if (IsExtractionPointSubmitted(gate))
+                return false;
+
+            // 读取状态：只要不是“完成类状态”，都阻塞
+            try
+            {
+                var t = gate.GetType();
+                var f = t.GetField("currentState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                var p = t.GetProperty("currentState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                object? v = null;
+                if (p != null) v = p.GetValue(gate, null);
+                if (v == null && f != null) v = f.GetValue(gate);
+                if (v == null) return true;
+
+                var s = v.ToString() ?? "";
+                if (IsCompletedLikeState(s))
+                    return false;
+            }
+            catch
+            {
+                // 无法读取状态时，保守阻塞
+                return true;
+            }
+
+            return true;
         }
 
         private bool IsExtractionPointSubmitted(Component ep)
@@ -356,9 +455,7 @@ namespace REPO_Active.Runtime
                 if (v == null) continue;
 
                 var s = v.ToString() ?? "";
-                s = s.ToLowerInvariant();
-
-                if (s.Contains("success") || s.Contains("complete") || s.Contains("submitted") || s.Contains("finish") || s.Contains("done"))
+                if (IsCompletedLikeState(s))
                     return true;
             }
 
@@ -388,8 +485,8 @@ namespace REPO_Active.Runtime
                     var s = v.ToString() ?? "";
                     if (s.Length == 0) continue;
 
-                    if (s.IndexOf("Idle", StringComparison.OrdinalIgnoreCase) >= 0) continue;
-                    if (s.IndexOf("Complete", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    if (IsIdleLikeState(s)) continue;
+                    if (IsCompletedLikeState(s)) continue;
 
                     return true;
                 }
@@ -401,6 +498,43 @@ namespace REPO_Active.Runtime
             }
 
             return false;
+        }
+
+        internal static bool IsIdleLikeState(string stateName)
+        {
+            if (string.IsNullOrEmpty(stateName)) return false;
+            return stateName.IndexOf("Idle", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        internal static bool IsCompletedLikeState(string stateName)
+        {
+            if (string.IsNullOrEmpty(stateName)) return false;
+            var s = stateName.ToLowerInvariant();
+            return s.Contains("success")
+                || s.Contains("complete")
+                || s.Contains("submitted")
+                || s.Contains("finish")
+                || s.Contains("done");
+        }
+
+        public string ReadStateName(Component ep)
+        {
+            if (!ep) return "";
+            try
+            {
+                var t = ep.GetType();
+                var f = t.GetField("currentState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                var p = t.GetProperty("currentState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+                object? v = null;
+                if (p != null) v = p.GetValue(ep, null);
+                if (v == null && f != null) v = f.GetValue(ep);
+                if (v == null) return "";
+                return v.ToString() ?? "";
+            }
+            catch
+            {
+                return "";
+            }
         }
 
         /// <summary>
@@ -419,23 +553,41 @@ namespace REPO_Active.Runtime
             var result = new List<Component>();
             if (allPoints == null || allPoints.Count == 0) return result;
 
-            // 先确定 SpawnGate
-            UpdateSpawnGateAlwaysNearest(allPoints, spawnPos);
-
-            // 复制候选集：排除 SpawnGate +（可选）排除已激活
+            // 复制候选集：（可选）排除已激活
             var candidates = new List<Component>(allPoints.Count);
             for (int i = 0; i < allPoints.Count; i++)
             {
                 var ep = allPoints[i];
                 if (!ep) continue;
 
-                if (_spawnGateInstanceId != 0 && ep.GetInstanceID() == _spawnGateInstanceId)
-                    continue;
-
                 if (skipActivated && IsMarkedActivated(ep))
                     continue;
 
                 candidates.Add(ep);
+            }
+
+            if (candidates.Count == 0) return result;
+
+            // 固定第一个：离出生点最近的提取点（不参与动态排序）
+            Component? first = null;
+            float bestFirst = float.MaxValue;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                float d = Vector3.Distance(candidates[i].transform.position, spawnPos);
+                if (d < bestFirst)
+                {
+                    bestFirst = d;
+                    first = candidates[i];
+                }
+            }
+
+            if (first != null)
+            {
+                if (!skipActivated || !IsMarkedActivated(first))
+                {
+                    result.Add(first);
+                }
+                candidates.Remove(first);
             }
 
             if (candidates.Count == 0) return result;
