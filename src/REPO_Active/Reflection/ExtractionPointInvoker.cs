@@ -24,6 +24,8 @@ namespace REPO_Active.Reflection
 
             try
             {
+                // [VERIFY] ExtractionPoint.OnClick() exists in decompiled Assembly-CSharp and is parameterless.
+                // [NOTE] Default-args fallback is safe but not required for current game build.
                 var t = ep.GetType();
                 var mi = t.GetMethod("OnClick", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 if (mi == null)

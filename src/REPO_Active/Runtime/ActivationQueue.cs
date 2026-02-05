@@ -13,6 +13,10 @@ namespace REPO_Active.Runtime
         private readonly ExtractionPointInvoker _invoker;
         private readonly ExtractionPointScanner _scanner;
 
+        // Verification notes (decompile cross-check):
+        // - Uses UnityEngine.Coroutine / WaitForSeconds -> VERIFIED in UnityEngine.CoreModule.
+        // - Uses ExtractionPointInvoker.InvokeOnClick -> VERIFIED in Assembly-CSharp\ExtractionPoint.OnClick (via reflection).
+
         private Coroutine? _running;
 
         public float PerActivationDelay { get; set; }

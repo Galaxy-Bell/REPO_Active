@@ -13,6 +13,11 @@ namespace REPO_Active.Runtime
         private readonly ManualLogSource _log;
         private readonly ExtractionPointInvoker _invoker;
 
+        // Verification notes (decompile cross-check):
+        // - ExtractionPoint type and member currentState -> VERIFIED in Assembly-CSharp\ExtractionPoint.cs.
+        // - UnityEngine.Object.FindObjectsOfType(Type) and Time.* are verified in UnityEngine.CoreModule.
+        // - This file does NOT call Photon APIs directly.
+
         private Type? _epType;
         private readonly List<Component> _cached = new();
         private float _lastScanRealtime;
@@ -46,6 +51,7 @@ namespace REPO_Active.Runtime
         {
             if (_epType != null) return true;
 
+            // [VERIFY] ExtractionPoint type exists in decompiled Assembly-CSharp (ExtractionPoint.cs).
             _epType = AppDomain.CurrentDomain.GetAssemblies()
                 .SelectMany(a =>
                 {
@@ -61,12 +67,14 @@ namespace REPO_Active.Runtime
         {
             try
             {
+                // [VERIFY] UnityEngine.Time.realtimeSinceStartup (UnityEngine.CoreModule).
                 var now = Time.realtimeSinceStartup;
                 if (!force && (now - _lastScanRealtime) < RescanCooldown) return;
                 _lastScanRealtime = now;
 
                 if (!EnsureReady()) return;
 
+                // [VERIFY] UnityEngine.Object.FindObjectsOfType(Type) (UnityEngine.CoreModule).
                 var found = UnityEngine.Object.FindObjectsOfType(_epType!);
                 _cached.Clear();
                 _cached.AddRange(found.OfType<Component>().Where(c => c != null));
@@ -86,6 +94,7 @@ namespace REPO_Active.Runtime
 
         public Vector3 GetReferencePos()
         {
+            // [VERIFY] UnityEngine.Camera.main and GameObject.FindWithTag (UnityEngine.CoreModule).
             try
             {
                 if (Camera.main != null) return Camera.main.transform.position;
@@ -378,10 +387,6 @@ namespace REPO_Active.Runtime
             // 默认阻塞：未识别到 gate 时也阻塞，直到能确认 gate 已提交完成
             if (!gate) return false;
 
-            // 已提交完成则不阻塞
-            if (IsExtractionPointSubmitted(gate))
-                return false;
-
             // 读取状态：只要不是“完成类状态”，都阻塞
             try
             {
@@ -391,6 +396,7 @@ namespace REPO_Active.Runtime
                 object? v = null;
                 if (p != null) v = p.GetValue(gate, null);
                 if (v == null && f != null) v = f.GetValue(gate);
+                // [VERIFY] currentState is a field (not a property) in decompiled ExtractionPoint.cs.
                 if (v == null) return true;
 
                 var s = v.ToString() ?? "";
@@ -403,63 +409,6 @@ namespace REPO_Active.Runtime
                 return true;
             }
 
-            return true;
-        }
-
-        private bool IsExtractionPointSubmitted(Component ep)
-        {
-            if (!ep) return true;
-
-            var t = ep.GetType();
-
-            // 1) 常见 bool 字段/属性名（优先）
-            string[] boolNames =
-            {
-                "Submitted","submitted",
-                "IsSubmitted","isSubmitted",
-                "HasSubmitted","hasSubmitted",
-                "Completed","completed",
-                "IsCompleted","isCompleted",
-                "HasCompleted","hasCompleted",
-                "Finished","finished",
-                "IsFinished","isFinished"
-            };
-
-            foreach (var n in boolNames)
-            {
-                var p = t.GetProperty(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                if (p != null && p.PropertyType == typeof(bool))
-                {
-                    return (bool)p.GetValue(ep, null);
-                }
-
-                var f = t.GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                if (f != null && f.FieldType == typeof(bool))
-                {
-                    return (bool)f.GetValue(ep);
-                }
-            }
-
-            // 2) 兜底：看 state/status 类字段（枚举/字符串/整数），包含 “success/complete/submitted/finished/done” 视为提交完成
-            string[] stateNames = { "state", "State", "status", "Status", "currentState", "CurrentState", "phase", "Phase" };
-            foreach (var n in stateNames)
-            {
-                object? v = null;
-
-                var p = t.GetProperty(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                if (p != null) v = p.GetValue(ep, null);
-
-                var f = t.GetField(n, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                if (v == null && f != null) v = f.GetValue(ep);
-
-                if (v == null) continue;
-
-                var s = v.ToString() ?? "";
-                if (IsCompletedLikeState(s))
-                    return true;
-            }
-
-            // 3) 最后兜底：无法判断 => 不阻塞（视为已提交）
             return true;
         }
 
@@ -480,6 +429,7 @@ namespace REPO_Active.Runtime
                     object? v = null;
                     if (p != null) v = p.GetValue(ep, null);
                     if (v == null && f != null) v = f.GetValue(ep);
+                    // [VERIFY] In decompiled ExtractionPoint.cs, `currentState` exists as an internal field (not a property).
                     if (v == null) continue;
 
                     var s = v.ToString() ?? "";
@@ -503,6 +453,7 @@ namespace REPO_Active.Runtime
         internal static bool IsIdleLikeState(string stateName)
         {
             if (string.IsNullOrEmpty(stateName)) return false;
+            // [VERIFY] ExtractionPoint.State.Idle exists in decompiled ExtractionPoint.cs enum.
             return stateName.IndexOf("Idle", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
@@ -510,6 +461,7 @@ namespace REPO_Active.Runtime
         {
             if (string.IsNullOrEmpty(stateName)) return false;
             var s = stateName.ToLowerInvariant();
+            // [VERIFY] ExtractionPoint.State.Success / Complete exist in decompiled ExtractionPoint.cs enum.
             return s.Contains("success")
                 || s.Contains("complete")
                 || s.Contains("submitted")
@@ -528,6 +480,7 @@ namespace REPO_Active.Runtime
                 object? v = null;
                 if (p != null) v = p.GetValue(ep, null);
                 if (v == null && f != null) v = f.GetValue(ep);
+                // [VERIFY] In decompiled ExtractionPoint.cs, `currentState` exists as an internal field (not a property).
                 if (v == null) return "";
                 return v.ToString() ?? "";
             }

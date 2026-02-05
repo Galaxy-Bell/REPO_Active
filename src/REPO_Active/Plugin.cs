@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using BepInEx;
 using BepInEx.Configuration;
 using UnityEngine;
@@ -15,7 +16,18 @@ namespace REPO_Active
     {
         public const string PluginGuid = "angelcomilk.repo_active";
         public const string PluginName = "REPO_Active";
-        public const string PluginVersion = "4.5.0";
+        public const string PluginVersion = "4.5.5";
+
+        // Verification notes (decompile cross-check):
+        // - ExtractionPoint.OnClick(), ExtractionPoint.currentState -> VERIFIED in Assembly-CSharp\ExtractionPoint.cs.
+        // - Photon.Pun.PhotonNetwork.InRoom / IsMasterClient / PlayerList -> VERIFIED in PhotonUnityNetworking\PhotonNetwork.cs.
+        // - Photon.Pun.PhotonView.OwnerActorNr -> VERIFIED in PhotonUnityNetworking\PhotonView.cs.
+        // - UnityEngine types verified in decompile output:
+        //   Time/Vector3/Camera/GameObject/Object/MonoBehaviour are in UnityEngine.CoreModule.
+        //   Input is in UnityEngine.InputLegacyModule.
+        //   SceneManager is in UnityEngine.CoreModule (UnityEngine.SceneManagement namespace).
+        // - BepInEx types verified in decompile output:
+        //   BaseUnityPlugin is in BepInEx\BaseUnityPlugin.cs; ConfigFile/ConfigEntry exist in BepInEx\Configuration\*.
 
         // ---- config (ONLY 3 items) ----
         private ConfigEntry<bool> _autoActivate = null!;
@@ -23,7 +35,6 @@ namespace REPO_Active
         private ConfigEntry<bool> _discoverAllPoints = null!;
 
         private ExtractionPointScanner _scanner = null!;
-        private ActivationQueue _queue = null!;
         private ExtractionPointInvoker _invoker = null!;
 
         private float _autoTimer = 0f;
@@ -33,7 +44,6 @@ namespace REPO_Active
         private float _discoverIntervalFixed = -1f;
 
         private const float RESCAN_COOLDOWN = 0.6f;
-        private const float PER_ACTIVATION_DELAY = 0.15f;
         private const bool VERBOSE = false;
         private const bool SKIP_ACTIVATED = true;
         private const float AUTO_INTERVAL = 5.0f;
@@ -52,7 +62,6 @@ namespace REPO_Active
 
             _invoker = new ExtractionPointInvoker(Logger, VERBOSE);
             _scanner = new ExtractionPointScanner(Logger, _invoker, RESCAN_COOLDOWN, VERBOSE);
-            _queue = new ActivationQueue(Logger, _invoker, _scanner, PER_ACTIVATION_DELAY, VERBOSE);
 
             SceneManager.sceneLoaded += OnSceneLoaded;
             Logger.LogInfo($"{PluginName} {PluginVersion} loaded. (OnClick reflection activation)");
@@ -66,6 +75,7 @@ namespace REPO_Active
         private void Update()
         {
             // manual
+            // [VERIFY] UnityEngine.Input.GetKeyDown (UnityEngine.InputLegacyModule).
             if (Input.GetKeyDown(_keyActivateNearest.Value))
             {
                 ActivateNearest();
@@ -73,6 +83,7 @@ namespace REPO_Active
 
 
             // discovery polling
+            // [VERIFY] UnityEngine.Time.deltaTime (UnityEngine.CoreModule).
             _discoverTimer += Time.deltaTime;
             float interval = _discoverIntervalFixed > 0f ? _discoverIntervalFixed : DISCOVER_INTERVAL_BASE;
             if (_discoverTimer >= interval)
@@ -90,6 +101,7 @@ namespace REPO_Active
                     {
                         var all = _scanner.ScanAndGetAllPoints();
                         var refPos = _scanner.GetReferencePos();
+                        // [VERIFY] UnityEngine.Time.realtimeSinceStartup (UnityEngine.CoreModule).
                         if (all.Count > 0 && refPos != Vector3.zero)
                         {
                             _scanner.CaptureSpawnPosIfNeeded(refPos);
@@ -125,6 +137,7 @@ namespace REPO_Active
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             // Reset per-round timers so auto mode re-enters its buffer on every map load
+            // [VERIFY] UnityEngine.SceneManagement.SceneManager/Scene (UnityEngine.CoreModule).
             _autoReadyTime = -1f;
             _autoPrimed = false;
             _discoverIntervalFixed = -1f;
@@ -220,39 +233,6 @@ namespace REPO_Active
             }
         }
 
-        private void BuildQueueAndRun()
-        {
-            if (!_scanner.EnsureReady())
-            {
-                Logger.LogWarning("ExtractionPoint type not found yet.");
-                return;
-            }
-
-            _scanner.ScanIfNeeded(force: true);
-
-            var refPos = _scanner.GetReferencePos();
-            _scanner.CaptureSpawnPosIfNeeded(refPos);
-
-            var all = _scanner.ScanAndGetAllPoints();
-
-            if (_discoverAllPoints.Value)
-                _scanner.MarkAllDiscovered(all);
-            else
-                _scanner.UpdateDiscovered(refPos, DISCOVER_RADIUS);
-
-            var eligible = _discoverAllPoints.Value ? all : _scanner.FilterDiscovered(all);
-            var list = _scanner.BuildStage1PlannedList(eligible, _scanner.GetSpawnPos(), refPos, skipActivated: SKIP_ACTIVATED);
-
-            if (list.Count == 0)
-            {
-                Logger.LogWarning("Queue is empty (no eligible extraction points).");
-                return;
-            }
-
-            Logger.LogInfo($"[F4] Queue built: {list.Count} EP(s). Start activating...");
-            _queue.StartQueue(this, list, onActivated: ep => _scanner.MarkActivated(ep));
-        }
-
         private void PrimeFirstPointIfAlreadyActivated()
         {
             var all = _scanner.ScanAndGetAllPoints();
@@ -284,6 +264,7 @@ namespace REPO_Active
 
             try
             {
+                // [VERIFY] PhotonNetwork.InRoom / IsMasterClient exist in decompiled PhotonNetwork.cs.
                 var photonNetworkType = Type.GetType("Photon.Pun.PhotonNetwork, PhotonUnityNetworking");
                 if (photonNetworkType == null) return list;
 
@@ -295,41 +276,73 @@ namespace REPO_Active
 
                 if (!inRoom || !isMaster) return list;
 
-                var photonViewType = Type.GetType("Photon.Pun.PhotonView, PhotonUnityNetworking");
-                if (photonViewType == null) return list;
+                // Prefer GameDirector.instance.PlayerList (more stable than name-based PhotonView scanning)
+                var gdType = Type.GetType("GameDirector, Assembly-CSharp");
+                if (gdType == null) return list;
 
-                var found = UnityEngine.Object.FindObjectsOfType(photonViewType);
-                var ownerActorNrProp = photonViewType.GetProperty("OwnerActorNr");
-
-                var byActor = new Dictionary<int, Vector3>();
-
-                for (int i = 0; i < found.Length; i++)
+                object? gdInst = null;
+                var instProp = gdType.GetProperty("instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (instProp != null) gdInst = instProp.GetValue(null, null);
+                if (gdInst == null)
                 {
-                    if (!(found[i] is Component c) || c == null) continue;
-                    int actor = 0;
-                    if (ownerActorNrProp != null)
-                    {
-                        var v = ownerActorNrProp.GetValue(c, null);
-                        if (v is int ai) actor = ai;
-                    }
-                    if (actor <= 0) continue;
-
-                    string name = c.gameObject != null ? c.gameObject.name : "";
-                    if (string.IsNullOrEmpty(name)) continue;
-
-                    bool isAvatar = name.IndexOf("Player Avatar Controller", StringComparison.OrdinalIgnoreCase) >= 0;
-                    bool isLocalCam = name.IndexOf("Local Camera", StringComparison.OrdinalIgnoreCase) >= 0;
-                    if (!isAvatar && !isLocalCam) continue;
-
-                    var pos = c.transform != null ? c.transform.position : Vector3.zero;
-                    if (pos == Vector3.zero) continue;
-
-                    if (!byActor.ContainsKey(actor) || isAvatar)
-                        byActor[actor] = pos;
+                    var instField = gdType.GetField("instance", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                    if (instField != null) gdInst = instField.GetValue(null);
                 }
+                if (gdInst == null) return list;
 
-                foreach (var kv in byActor)
-                    list.Add(kv.Value);
+                object? playerListObj = null;
+                var plProp = gdType.GetProperty("PlayerList", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (plProp != null) playerListObj = plProp.GetValue(gdInst, null);
+                if (playerListObj == null)
+                {
+                    var plField = gdType.GetField("PlayerList", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (plField != null) playerListObj = plField.GetValue(gdInst);
+                }
+                if (playerListObj == null) return list;
+
+                var asEnumerable = playerListObj as System.Collections.IEnumerable;
+                if (asEnumerable == null) return list;
+
+                foreach (var p in asEnumerable)
+                {
+                    if (p == null) continue;
+                    // GameDirector.PlayerList is List<PlayerAvatar> in decompiled GameDirector.cs.
+                    // So items are already PlayerAvatar (MonoBehaviour/Component).
+                    if (p is Component comp && comp.transform != null)
+                    {
+                        var pos = comp.transform.position;
+                        if (pos != Vector3.zero) list.Add(pos);
+                        continue;
+                    }
+
+                    // Fallback: if list items are wrappers, try PlayerAvatar property/field.
+                    var pt = p.GetType();
+                    object? avatarObj = null;
+                    var avatarProp = pt.GetProperty("PlayerAvatar", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (avatarProp != null) avatarObj = avatarProp.GetValue(p, null);
+                    if (avatarObj == null)
+                    {
+                        var avatarField = pt.GetField("PlayerAvatar", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        if (avatarField != null) avatarObj = avatarField.GetValue(p);
+                    }
+                    if (avatarObj == null) continue;
+
+                    if (avatarObj is Component comp2 && comp2.transform != null)
+                    {
+                        var pos = comp2.transform.position;
+                        if (pos != Vector3.zero) list.Add(pos);
+                    }
+                    else
+                    {
+                        var trProp = avatarObj.GetType().GetProperty("transform", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                        var tr = trProp != null ? trProp.GetValue(avatarObj, null) as Transform : null;
+                        if (tr != null)
+                        {
+                            var pos = tr.position;
+                            if (pos != Vector3.zero) list.Add(pos);
+                        }
+                    }
+                }
             }
             catch
             {
@@ -365,6 +378,7 @@ namespace REPO_Active
 
                 if (playerListProp != null)
                 {
+                    // [VERIFY] PhotonNetwork.PlayerList exists in decompiled PhotonNetwork.cs (returns Player[]).
                     var arr = playerListProp.GetValue(null) as Array;
                     if (arr != null && arr.Length > 0) return arr.Length;
                 }
@@ -376,3 +390,4 @@ namespace REPO_Active
 
     }
 }
+
