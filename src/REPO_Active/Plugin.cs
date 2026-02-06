@@ -8,6 +8,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using REPO_Active.Runtime;
 using REPO_Active.Reflection;
+using REPO_Active.Debug;
 
 namespace REPO_Active
 {
@@ -16,7 +17,7 @@ namespace REPO_Active
     {
         public const string PluginGuid = "angelcomilk.repo_active";
         public const string PluginName = "REPO_Active";
-        public const string PluginVersion = "4.5.5";
+        public const string PluginVersion = "4.5.6";
 
         // Verification notes (decompile cross-check):
         // - ExtractionPoint.OnClick(), ExtractionPoint.currentState -> VERIFIED in Assembly-CSharp\ExtractionPoint.cs.
@@ -29,19 +30,22 @@ namespace REPO_Active
         // - BepInEx types verified in decompile output:
         //   BaseUnityPlugin is in BepInEx\BaseUnityPlugin.cs; ConfigFile/ConfigEntry exist in BepInEx\Configuration\*.
 
-        // ---- config (ONLY 3 items) ----
+        // ---- config ----
         private ConfigEntry<bool> _autoActivate = null!;
         private ConfigEntry<KeyCode> _keyActivateNearest = null!;
         private ConfigEntry<bool> _discoverAllPoints = null!;
+        private ConfigEntry<bool> _enableDebugLog = null!;
 
         private ExtractionPointScanner _scanner = null!;
         private ExtractionPointInvoker _invoker = null!;
+        private ModLogger? _dbg;
 
         private float _autoTimer = 0f;
         private float _discoverTimer = 0f;
         private float _autoReadyTime = -1f;
         private bool _autoPrimed = false;
         private float _discoverIntervalFixed = -1f;
+        private bool _logReady = false;
 
         private const float RESCAN_COOLDOWN = 0.6f;
         private const bool VERBOSE = false;
@@ -59,12 +63,16 @@ namespace REPO_Active
             _autoActivate = Config.Bind("Auto", "AutoActivate", false, "Auto activate when idle.");
             _keyActivateNearest = Config.Bind("Keybinds", "ActivateNearest", KeyCode.F3, "Press to activate next extraction point (uses OnClick via reflection)." );
             _discoverAllPoints = Config.Bind("Discovery", "DiscoverAllPoints", false, "If true, treat all extraction points as discovered.");
+            _enableDebugLog = Config.Bind("Debug", "EnableDebugLog", false, "Enable detailed mod logs in BepInEx\\config\\REPO_Active\\logs.");
 
             _invoker = new ExtractionPointInvoker(Logger, VERBOSE);
             _scanner = new ExtractionPointScanner(Logger, _invoker, RESCAN_COOLDOWN, VERBOSE);
+            _dbg = new ModLogger(Logger, _enableDebugLog.Value);
+            _scanner.DebugLog = _dbg.Log;
 
             SceneManager.sceneLoaded += OnSceneLoaded;
             Logger.LogInfo($"{PluginName} {PluginVersion} loaded. (OnClick reflection activation)");
+            _dbg.Log($"[INIT] {PluginName} {PluginVersion} Auto={_autoActivate.Value} DiscoverAll={_discoverAllPoints.Value}");
         }
 
         private void OnDestroy()
@@ -74,10 +82,13 @@ namespace REPO_Active
 
         private void Update()
         {
+            if (_dbg != null) _dbg.Enabled = _enableDebugLog.Value;
+
             // manual
             // [VERIFY] UnityEngine.Input.GetKeyDown (UnityEngine.InputLegacyModule).
             if (Input.GetKeyDown(_keyActivateNearest.Value))
             {
+                _dbg?.Log("[INPUT] F3 pressed");
                 ActivateNearest();
             }
 
@@ -108,6 +119,7 @@ namespace REPO_Active
                             _autoReadyTime = Time.realtimeSinceStartup;
                             _autoTimer = 0f;
                             _discoverIntervalFixed = ComputeDiscoveryInterval();
+                            _dbg?.Log($"[AUTO] primed count={all.Count} refPos={refPos}");
                         }
                     }
                 }
@@ -121,14 +133,22 @@ namespace REPO_Active
                         {
                             PrimeFirstPointIfAlreadyActivated();
                             _autoPrimed = true;
+                            _dbg?.Log("[AUTO] primed-first");
                         }
 
                         _autoTimer += Time.deltaTime;
                         if (_autoTimer >= AUTO_INTERVAL)
                         {
                             _autoTimer = 0f;
+                            _dbg?.Log("[AUTO] tick");
                             AutoActivateIfIdle();
                         }
+                    }
+                    else
+                    {
+                        var left = AUTO_READY_BUFFER - (Time.realtimeSinceStartup - _autoReadyTime);
+                        if (left > 0f)
+                            _dbg?.Log($"[AUTO] buffer wait {left:0.0}s");
                     }
                 }
             }
@@ -144,6 +164,8 @@ namespace REPO_Active
             _autoTimer = 0f;
             _discoverTimer = 0f;
             _scanner.ResetForNewRound();
+            _logReady = false;
+            _dbg?.Log("[SCENE] new scene loaded, reset timers");
         }
 
         private void DiscoveryTick()
@@ -153,6 +175,15 @@ namespace REPO_Active
             // Always rescan on discovery tick to keep cache fresh even while points are activating
             var all = _scanner.ScanAndGetAllPoints();
             var refPos = _scanner.GetReferencePos();
+            if (!_logReady && all.Count > 0)
+            {
+                _logReady = true;
+                _dbg?.Log("[LOG] ready: ExtractionPoint detected");
+            }
+            if (_logReady)
+            {
+                _dbg?.Log($"[DISCOVER] tick all={all.Count} discovered={_scanner.DiscoveredCount}");
+            }
 
             if (_discoverAllPoints.Value)
             {
@@ -164,11 +195,13 @@ namespace REPO_Active
                 if (allPos.Count == 0)
                 {
                     _scanner.UpdateDiscovered(refPos, DISCOVER_RADIUS);
+                    _dbg?.Log($"[DISCOVER] hostPos fallback={refPos}");
                 }
                 else
                 {
                     for (int i = 0; i < allPos.Count; i++)
                         _scanner.UpdateDiscovered(allPos[i], DISCOVER_RADIUS);
+                    _dbg?.Log($"[DISCOVER] hostPos count={allPos.Count}");
                 }
             }
         }
@@ -176,7 +209,10 @@ namespace REPO_Active
         private void AutoActivateIfIdle()
         {
             if (!_scanner.EnsureReady())
+            {
+                _dbg?.Log("[AUTO] EnsureReady=false");
                 return;
+            }
             ActivateNearest();
         }
 
@@ -185,17 +221,20 @@ namespace REPO_Active
             if (!_scanner.EnsureReady())
             {
                 Logger.LogWarning("ExtractionPoint type not found yet.");
+                _dbg?.Log("[F3] EnsureReady=false");
                 return;
             }
 
             _scanner.ScanIfNeeded(force: true);
 
             var allPoints = _scanner.ScanAndGetAllPoints();
+            _dbg?.Log($"[F3] allPoints={allPoints.Count}");
 
             // 1) 必须没有任何提取点处于激活中
             if (_scanner.IsAnyExtractionPointActivating(allPoints))
             {
                 Logger.LogWarning("有提取点正在激活中，F3 忽略");
+                _dbg?.Log("[F3] blocked: activating");
                 return;
             }
 
@@ -203,6 +242,7 @@ namespace REPO_Active
             var startPos = _scanner.GetReferencePos();
             _scanner.CaptureSpawnPosIfNeeded(startPos);
             var spawnPos = _scanner.GetSpawnPos();
+            _dbg?.Log($"[F3] startPos={startPos} spawnPos={spawnPos}");
 
             // discovery filter
             if (_discoverAllPoints.Value)
@@ -211,25 +251,44 @@ namespace REPO_Active
                 _scanner.UpdateDiscovered(startPos, DISCOVER_RADIUS);
 
             var eligible = _discoverAllPoints.Value ? allPoints : _scanner.FilterDiscovered(allPoints);
+            _dbg?.Log($"[F3] eligible={eligible.Count} discoverAll={_discoverAllPoints.Value}");
 
             // 4) 构建规划列表
             var plan = _scanner.BuildStage1PlannedList(eligible, spawnPos, startPos, skipActivated: SKIP_ACTIVATED);
             if (plan.Count == 0)
             {
                 Logger.LogWarning("没有可激活的提取点（可能都已激活或未发现）");
+                _dbg?.Log("[F3] plan empty");
                 return;
             }
 
             var next = plan[0];
+            var nextState = _scanner.ReadStateName(next);
+            _dbg?.Log($"[F3] next={next.gameObject.name} state={nextState}");
 
             // 5) 激活方式不改：仍走 OnClick invoker
             Logger.LogInfo($"[F3] Activate planned EP: {next.gameObject.name} pos={next.transform.position} dist={Vector3.Distance(startPos, next.transform.position):0.00}");
 
             var invokeOk = _invoker.InvokeOnClick(next);
+            _dbg?.Log($"[F3] invoke={invokeOk} next={next.gameObject.name}");
 
             if (invokeOk)
             {
-                _scanner.MarkActivated(next);
+                // Guard against false-positive activation:
+                // OnClick can succeed even if the EP doesn't actually enter an active state yet.
+                // Only mark as activated if its state is not Idle/Complete after the call.
+                var st = _scanner.ReadStateName(next);
+                if (!string.IsNullOrEmpty(st) &&
+                    !ExtractionPointScanner.IsIdleLikeState(st) &&
+                    !ExtractionPointScanner.IsCompletedLikeState(st))
+                {
+                    _scanner.MarkActivated(next);
+                    _dbg?.Log($"[F3] marked activated: {next.gameObject.name} state={st}");
+                }
+                else
+                {
+                    _dbg?.Log($"[F3] NOT marked (state not active): {next.gameObject.name} state={st}");
+                }
             }
         }
 
@@ -390,4 +449,5 @@ namespace REPO_Active
 
     }
 }
+
 

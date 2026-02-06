@@ -8,3 +8,14 @@ C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2
 C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.csproj.CoreCompileInputs.cache
 C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.dll
 C:\Users\Home\Desktop\REPO_Active_3.5.3\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.pdb
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\bin\Release\netstandard2.1\REPO_Active.deps.json
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\bin\Release\netstandard2.1\REPO_Active.dll
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\bin\Release\netstandard2.1\REPO_Active.pdb
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.csproj.AssemblyReference.cache
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.AssemblyInfoInputs.cache
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.AssemblyInfo.cs
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.csproj.CoreCompileInputs.cache
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.sourcelink.json
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.dll
+C:\Users\Home\Documents\GitHub\REPO_Active\src\REPO_Active\obj\Release\netstandard2.1\REPO_Active.pdb

@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "htqhKO188Uk=",
+  "dgSpecHash": "NffFV3Tn3LU=",
   "success": true,
-  "projectFilePath": "C:\\Users\\Home\\Desktop\\REPO_Active_3.5.3\\src\\REPO_Active\\REPO_Active.csproj",
+  "projectFilePath": "C:\\Users\\Home\\Documents\\GitHub\\REPO_Active\\src\\REPO_Active\\REPO_Active.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Home\\.nuget\\packages\\bepinex.baselib\\5.4.20\\bepinex.baselib.5.4.20.nupkg.sha512",
     "C:\\Users\\Home\\.nuget\\packages\\bepinex.core\\5.4.21\\bepinex.core.5.4.21.nupkg.sha512",

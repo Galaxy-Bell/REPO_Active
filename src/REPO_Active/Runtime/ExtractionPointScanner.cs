@@ -32,11 +32,14 @@ namespace REPO_Active.Runtime
         // Stage1: planning helpers
         // =====================
 
-        private int _spawnGateInstanceId = 0; // 出生点门口最近的提取点（永远排除 + 阻塞）
         private float _blockUntil = -1f;
 
         public float RescanCooldown { get; set; }
         public bool Verbose { get; set; }
+        public Action<string>? DebugLog { get; set; }
+
+        public int CachedCount => _cached.Count;
+        public int DiscoveredCount => _discovered.Count;
 
         public ExtractionPointScanner(ManualLogSource log, ExtractionPointInvoker invoker, float rescanCooldown, bool verbose)
         {
@@ -68,7 +71,8 @@ namespace REPO_Active.Runtime
             try
             {
                 // [VERIFY] UnityEngine.Time.realtimeSinceStartup (UnityEngine.CoreModule).
-                var now = Time.realtimeSinceStartup;
+                var t0 = Time.realtimeSinceStartup;
+                var now = t0;
                 if (!force && (now - _lastScanRealtime) < RescanCooldown) return;
                 _lastScanRealtime = now;
 
@@ -79,16 +83,15 @@ namespace REPO_Active.Runtime
                 _cached.Clear();
                 _cached.AddRange(found.OfType<Component>().Where(c => c != null));
 
-                // 每次 Scan 后都更新 SpawnGate（前提是 spawnPos 已捕获）
-                if (_spawnPos != null)
-                    UpdateSpawnGateAlwaysNearest(_cached, _spawnPos.Value);
-
                 if (Verbose)
                     _log.LogInfo($"[SCAN] ExtractionPoint rescan: {_cached.Count}");
+                var dt = Time.realtimeSinceStartup - t0;
+                DebugLog?.Invoke($"[SCAN] count={_cached.Count} dt={dt:0.000}s");
             }
             catch (Exception e)
             {
                 _log.LogError($"ScanIfNeeded failed: {e}");
+                DebugLog?.Invoke($"[SCAN][ERR] {e.GetType().Name}: {e.Message}");
             }
         }
 
@@ -113,18 +116,23 @@ namespace REPO_Active.Runtime
 
         public void MarkAllDiscovered(List<Component> allPoints)
         {
+            int before = _discovered.Count;
             for (int i = 0; i < allPoints.Count; i++)
             {
                 var ep = allPoints[i];
                 if (!ep) continue;
                 _discovered.Add(ep.GetInstanceID());
             }
+            int added = _discovered.Count - before;
+            if (added > 0)
+                DebugLog?.Invoke($"[DISCOVER] mark-all +{added} total={_discovered.Count}");
         }
 
         public void UpdateDiscovered(Vector3 refPos, float radius)
         {
             if (_cached.Count == 0) return;
 
+            int before = _discovered.Count;
             for (int i = 0; i < _cached.Count; i++)
             {
                 var ep = _cached[i];
@@ -136,6 +144,9 @@ namespace REPO_Active.Runtime
                 if (d <= radius)
                     _discovered.Add(id);
             }
+            int added = _discovered.Count - before;
+            if (added > 0)
+                DebugLog?.Invoke($"[DISCOVER] +{added} total={_discovered.Count} radius={radius:0.0}");
         }
 
         public List<Component> FilterDiscovered(List<Component> allPoints)
@@ -178,7 +189,6 @@ namespace REPO_Active.Runtime
             _discovered.Clear();
             _spawnPos = null;
             _spawnExcludedInstanceId = null;
-            _spawnGateInstanceId = 0;
             _lastScanRealtime = 0f;
         }
 
@@ -325,91 +335,13 @@ namespace REPO_Active.Runtime
             return nearest?.GetInstanceID();
         }
 
-        public Component? GetSpawnGatePoint(List<Component> allPoints)
-        {
-            if (_spawnGateInstanceId == 0) return null;
-            for (int i = 0; i < allPoints.Count; i++)
-            {
-                if (allPoints[i] && allPoints[i].GetInstanceID() == _spawnGateInstanceId)
-                    return allPoints[i];
-            }
-            return null;
-        }
-
         /// <summary>
-        /// 每次 Scan 后都要更新：直接把“离出生点最近的提取点”设为 SpawnGate（不使用阈值）
-        /// </summary>
-        private void UpdateSpawnGateAlwaysNearest(List<Component> allPoints, Vector3 spawnPos)
-        {
-            if (allPoints == null || allPoints.Count == 0)
-            {
-                _spawnGateInstanceId = 0;
-                return;
-            }
-
-            Component? best = null;
-            float bestD = float.MaxValue;
-
-            for (int i = 0; i < allPoints.Count; i++)
-            {
-                var ep = allPoints[i];
-                if (!ep) continue;
-
-                float d = Vector3.Distance(ep.transform.position, spawnPos);
-                if (d < bestD)
-                {
-                    bestD = d;
-                    best = ep;
-                }
-            }
-
-            _spawnGateInstanceId = best ? best.GetInstanceID() : 0;
-        }
-
-        /// <summary>
-        /// SpawnGate 点未“提交完成”就阻塞其他点
-        /// 注意：如果找不到完成状态字段/属性，要尽量通过反射兜底判断
+        /// 启动时间窗阻塞：用于避免加载期误触发。
+        /// 仅依赖时间，不再基于 SpawnGate 状态阻塞。
         /// </summary>
         public bool IsSpawnGateBlocking(List<Component> allPoints)
         {
-            // 默认阻塞启动窗口（避免早期识别失败导致误放行/误阻塞）
-            if (Time.realtimeSinceStartup < _blockUntil)
-                return true;
-
-            // 如果还没捕获到 spawnPos，先不阻塞，避免死锁
-            if (_spawnPos == null) return false;
-
-            // 确保每次阻塞判断都刷新一次 SpawnGate
-            if (allPoints != null && allPoints.Count > 0)
-                UpdateSpawnGateAlwaysNearest(allPoints, _spawnPos.Value);
-
-            var gate = GetSpawnGatePoint(allPoints);
-            // 默认阻塞：未识别到 gate 时也阻塞，直到能确认 gate 已提交完成
-            if (!gate) return false;
-
-            // 读取状态：只要不是“完成类状态”，都阻塞
-            try
-            {
-                var t = gate.GetType();
-                var f = t.GetField("currentState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                var p = t.GetProperty("currentState", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                object? v = null;
-                if (p != null) v = p.GetValue(gate, null);
-                if (v == null && f != null) v = f.GetValue(gate);
-                // [VERIFY] currentState is a field (not a property) in decompiled ExtractionPoint.cs.
-                if (v == null) return true;
-
-                var s = v.ToString() ?? "";
-                if (IsCompletedLikeState(s))
-                    return false;
-            }
-            catch
-            {
-                // 无法读取状态时，保守阻塞
-                return true;
-            }
-
-            return true;
+            return Time.realtimeSinceStartup < _blockUntil;
         }
 
         public bool IsAnyExtractionPointActivating(List<Component> allPoints)
@@ -503,8 +435,13 @@ namespace REPO_Active.Runtime
             Vector3 startPos,
             bool skipActivated)
         {
+            var t0 = Time.realtimeSinceStartup;
             var result = new List<Component>();
             if (allPoints == null || allPoints.Count == 0) return result;
+
+            // Fallbacks to keep ordering stable if spawn/start are not yet valid.
+            if (spawnPos == Vector3.zero) spawnPos = startPos;
+            if (startPos == Vector3.zero) startPos = spawnPos;
 
             // 复制候选集：（可选）排除已激活
             var candidates = new List<Component>(allPoints.Count);
@@ -514,7 +451,10 @@ namespace REPO_Active.Runtime
                 if (!ep) continue;
 
                 if (skipActivated && IsMarkedActivated(ep))
+                {
+                    DebugLog?.Invoke($"[PLAN][SKIP] activated name={ep.gameObject.name}");
                     continue;
+                }
 
                 candidates.Add(ep);
             }
@@ -585,7 +525,26 @@ namespace REPO_Active.Runtime
 
             // 最后追加 last（离出生点最近的那个）
             result.Add(last);
+            var dt = Time.realtimeSinceStartup - t0;
+            DebugLog?.Invoke($"[PLAN] all={allPoints.Count} eligible={result.Count} first={first?.gameObject?.name ?? "null"} last={last.gameObject.name} dt={dt:0.000}s");
+            DebugLogPlanList(result, startPos);
             return result;
+        }
+
+        private void DebugLogPlanList(List<Component> plan, Vector3 startPos)
+        {
+            if (plan == null || plan.Count == 0) return;
+            for (int i = 0; i < plan.Count; i++)
+            {
+                var ep = plan[i];
+                if (!ep) continue;
+                var pos = ep.transform.position;
+                var d = Vector3.Distance(startPos, pos);
+                var st = ReadStateName(ep);
+                var act = IsMarkedActivated(ep);
+                var disc = _discovered.Contains(ep.GetInstanceID());
+                DebugLog?.Invoke($"[PLAN][{i}] name={ep.gameObject.name} dist={d:0.00} discovered={disc} activated={act} state={st}");
+            }
         }
     }
 }
