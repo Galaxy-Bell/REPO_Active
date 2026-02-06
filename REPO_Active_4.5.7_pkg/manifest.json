@@ -1,6 +1,6 @@
 ﻿{
   "name": "REPO_Active",
-  "version_number": "4.6.0",
+  "version_number": "4.5.7",
   "website_url": "https://github.com/Galaxy-Bell/REPO_Active",
   "description": "Remote activate extraction points via native OnClick chain; supports manual/auto, discovery, and multiplayer discovery via host.",
   "dependencies": [
@@ -8,9 +8,6 @@
   ],
   "author": "AngelcoMilk-天使棉"
 }
-
-
-
 
 
 

@@ -1,4 +1,4 @@
-﻿# REPO_Active v4.6.0
+﻿# REPO_Active v4.5.7
 
 A lightweight BepInEx plugin for REPO that **remotely activates extraction points via the native `ExtractionPoint.OnClick()` chain**. This preserves the game鈥檚 full feedback path (broadcast + marker + money) while providing a stable, planned activation order, manual control, and optional auto mode.
 
@@ -54,7 +54,7 @@ Author: **AngelcoMilk-澶╀娇妫?*
 
 ---
 
-# REPO_Active v4.6.0锛堜腑鏂囪鏄庯級
+# REPO_Active v4.5.7锛堜腑鏂囪鏄庯級
 
 杩欐槸涓€涓交閲忕殑 REPO 妯＄粍锛岄€氳繃 **鍘熺敓 `ExtractionPoint.OnClick()` 閾捐矾**杩滅▼婵€娲绘彁鍙栫偣锛屼繚鐣欐父鎴忓畬鏁村弽棣堬紙骞挎挱/鐧界偣/閲戦锛夛紝骞舵彁渚涚ǔ瀹氱殑瑙勫垝椤哄簭銆佹墜鍔ㄦ帶鍒朵笌鍙€夎嚜鍔ㄦā寮忋€?
 ## 瑙ｅ喅鐨勭棝鐐?- **杩滅▼婵€娲讳絾浠嶄繚鐣欏師鐢熷弽棣?*锛氫娇鐢ㄦ父鎴忓唴鍚屾牱鐨?OnClick 閫昏緫銆?- **鍙帶涓旂ǔ瀹氱殑婵€娲婚『搴?*锛氬噺灏戞潵鍥炶窇鍥剧殑鏃堕棿娴垂銆?- **瀹夊叏闃诲**锛氭湁婵€娲讳腑鐨勬彁鍙栫偣鏃朵笉浼氳Е鍙戞柊婵€娲汇€?- **澶氫汉鍙敤锛堜富鏈猴級**锛氬彂鐜伴€昏緫鍙€冭檻鎵€鏈夌帺瀹朵綅缃€?
@@ -72,7 +72,4 @@ Author: **AngelcoMilk-澶╀娇妫?*
 ## 璇存槑
 - 澶氫汉鍙戠幇閫昏緫鐢?**涓绘満** 鎵ц锛屽鎴风涓嶅仛浣嶇疆鑱氬悎銆?- 鍙戠幇鎵弿闂撮殧鍦ㄦ瘡灞€寮€濮嬫椂鏍规嵁浜烘暟鍥哄畾锛屽噺灏戞€ц兘娑堣€椼€?
 ## 浣滆€?**AngelcoMilk-澶╀娇妫?*
-
-
-
 

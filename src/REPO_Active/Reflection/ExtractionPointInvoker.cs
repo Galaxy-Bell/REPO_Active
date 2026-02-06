@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Linq;
 using System.Reflection;
 using BepInEx.Logging;
 using UnityEngine;
@@ -10,12 +9,9 @@ namespace REPO_Active.Reflection
     {
         private readonly ManualLogSource _log;
 
-        public bool Verbose { get; set; }
-
-        public ExtractionPointInvoker(ManualLogSource log, bool verbose)
+        public ExtractionPointInvoker(ManualLogSource log)
         {
             _log = log;
-            Verbose = verbose;
         }
 
         public bool InvokeOnClick(Component ep)
@@ -35,8 +31,6 @@ namespace REPO_Active.Reflection
                 }
 
                 var args = BuildDefaultArgs(mi);
-                if (Verbose)
-                    _log.LogInfo($"Invoke: {t.Name}.OnClick({FormatSig(mi)}) argsLen={(args == null ? 0 : args.Length)}");
 
                 mi.Invoke(ep, args);
                 return true;
@@ -86,17 +80,5 @@ namespace REPO_Active.Reflection
             }
         }
 
-        private static string FormatSig(MethodInfo mi)
-        {
-            try
-            {
-                var ps = mi.GetParameters();
-                return string.Join(",", ps.Select(x => x.ParameterType.Name));
-            }
-            catch
-            {
-                return "";
-            }
-        }
     }
 }

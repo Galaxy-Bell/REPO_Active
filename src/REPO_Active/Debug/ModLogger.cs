@@ -8,7 +8,6 @@ namespace REPO_Active.Debug
 {
     public sealed class ModLogger
     {
-        private readonly ManualLogSource _log;
         private readonly object _lock = new object();
         private string _filePath = "";
 
@@ -16,9 +15,8 @@ namespace REPO_Active.Debug
 
         public ModLogger(ManualLogSource log, bool enabled)
         {
-            _log = log;
             Enabled = enabled;
-            InitFile();
+            if (Enabled) InitFile();
         }
 
         private void InitFile()
@@ -43,7 +41,11 @@ namespace REPO_Active.Debug
         public void Log(string message)
         {
             if (!Enabled) return;
-            if (string.IsNullOrEmpty(_filePath)) return;
+            if (string.IsNullOrEmpty(_filePath))
+            {
+                InitFile();
+                if (string.IsNullOrEmpty(_filePath)) return;
+            }
             try
             {
                 lock (_lock)
