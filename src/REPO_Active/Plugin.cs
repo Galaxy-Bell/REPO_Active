@@ -18,7 +18,7 @@ namespace REPO_Active
     {
         public const string PluginGuid = "angelcomilk.repo_active";
         public const string PluginName = "REPO_Active";
-        public const string PluginVersion = "4.6.0";
+        public const string PluginVersion = "4.6.3";
 
         // Verification notes (decompile cross-check):
         // - ExtractionPoint.OnClick(), ExtractionPoint.currentState -> VERIFIED in Assembly-CSharp\ExtractionPoint.cs.
@@ -413,7 +413,8 @@ namespace REPO_Active
                 if (ep == null) yield break;
 
                 // Give the game short windows to advance EP state after OnClick.
-                float[] waits = { 0.15f, 0.25f, 0.25f, 0.25f };
+                // Longer retry window to reduce false "idle" after OnClick (more stable auto progression)
+                float[] waits = { 0.15f, 0.25f, 0.35f, 0.35f, 0.40f };
                 string lastState = "";
 
                 for (int i = 0; i < waits.Length; i++)
@@ -748,6 +749,10 @@ namespace REPO_Active
 
     }
 }
+
+
+
+
 
 
 

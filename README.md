@@ -1,33 +1,33 @@
-﻿# REPO_Active v4.6.0
+# REPO_Active v4.6.3
 
-A lightweight BepInEx plugin for REPO that **remotely activates extraction points via the native `ExtractionPoint.OnClick()` chain**. This preserves the game鈥檚 full feedback path (broadcast + marker + money) while providing a stable, planned activation order, manual control, and optional auto mode.
+A lightweight BepInEx plugin for REPO that **remotely activates extraction points via the native ExtractionPoint.OnClick() chain**. It preserves full in‑game feedback (broadcast + marker + reward) while providing a stable planned order, manual control, and optional auto mode.
+
+Are you overwhelmed by R.E.P.O.’s complex maps and the large number of extraction points? This mod reduces unnecessary backtracking and noticeably improves the overall flow.
 
 ## Why It Exists (Pain Points Solved)
-- **Remote activation that still feels 鈥渘ative鈥?*: uses the same OnClick logic as in-game interaction.
-- **Predictable order**: plans a path so you don鈥檛 waste time running back and forth.
-- **Safety-first**: will not activate a new point if another is already active.
-- **Multiplayer friendly (host)**: discovery can consider all players鈥?positions.
+- **Remote activation but still native**: uses the same OnClick logic as in‑game interaction; the result matches manual button presses.
+- **Predictable order**: dynamic route planning reduces backtracking; the plan fixes the **spawn‑nearest point as the first target**, orders the rest by **nearest‑neighbor from the player’s position**, and guarantees the **last target is the remaining point closest to spawn**.
+- **Safety‑first**: will not activate a new point if another is already active.
+- **Multiplayer friendly (host)**: discovery can consider all players’ positions and is host‑authoritative.
 
 ## Features
-- **Native activation**: reflection call to `ExtractionPoint.OnClick()`.
-- **Planned order**:
-  - First target = extraction point closest to spawn.
-  - Remaining targets follow a nearest-neighbor plan from current player position.
-- **Dynamic planning**: plan is rebuilt when you trigger activation.
-- **Safe gating**: activates only if **no other extraction point is currently active**.
-- **Discovery filter**: when `DiscoverAllPoints=false`, only discovered points are eligible.
-- **Multiplayer (host)**: discovery uses **all players鈥?positions** (host only).
+- **Native activation**: reflection call to ExtractionPoint.OnClick().
+- **Planned order**: first target is the extraction point closest to spawn; remaining points follow a nearest‑neighbor order from current player position.
+- **Dynamic planning**: the plan is rebuilt each time you trigger activation.
+- **Safe gating**: activates only if **no extraction point is currently active**.
+- **Discovery filter**: when DiscoverAllPoints=false, only discovered points are eligible.
+- **Multiplayer (host)**: discovery uses **all players’ positions** (host only).
 
 ## Keybind
 - **F3**: Activate next extraction point (planned list)
 
 ## Configuration
 Config file:
-`BepInEx\config\angelcomilk.repo_active.cfg`
+BepInEx\\config\\angelcomilk.repo_active.cfg
 
-- `AutoActivate` (bool): Auto-activate at a fixed interval.
-- `ActivateNearest` (KeyCode): Manual activation key (default F3).
-- `DiscoverAllPoints` (bool): If true, treat all points as discovered.
+- AutoActivate (bool): Auto‑activate at a fixed interval.
+- ActivateNearest (KeyCode): Manual activation key (default F3).
+- DiscoverAllPoints (bool): If true, treat all points as discovered.
 
 ## Manual vs Auto
 - **Manual (F3)**: Runs the same planning + safety checks and activates one point.
@@ -36,43 +36,76 @@ Config file:
 ## How It Chooses the Next Point
 1. Capture **spawn position** from the first valid reference position.
 2. Build the list of eligible extraction points (respects discovery filter).
-3. Fix the **spawn-nearest point as the first target**.
-4. Sort the rest using **nearest-neighbor** from current player position.
+3. Fix the **spawn‑nearest point as the first target**.
+4. Sort the rest using **nearest‑neighbor** from current player position.
 5. If any extraction point is active, **do not activate**.
 
 ## Installation (r2modman)
 1. Import the zip in r2modman.
 2. Ensure the DLL is at:
-   `BepInEx\plugins\REPO_Active\REPO_Active.dll`
+   BepInEx\\plugins\\REPO_Active\\REPO_Active.dll
 
 ## Notes
-- Multiplayer discovery is **host-side only**. Clients do not aggregate positions.
-- Discovery polling interval is fixed per round based on player count (performance-friendly).
+- Multiplayer discovery is **host‑side only**. Clients do not aggregate positions.
+- Discovery polling interval is fixed per round based on player count (performance‑friendly).
 
 ## Credits
-Author: **AngelcoMilk-澶╀娇妫?*
+Author: **AngelcoMilk-天使棉**
 
 ---
 
-# REPO_Active v4.6.0锛堜腑鏂囪鏄庯級
+# REPO_Active v4.6.3（中文说明）
 
-杩欐槸涓€涓交閲忕殑 REPO 妯＄粍锛岄€氳繃 **鍘熺敓 `ExtractionPoint.OnClick()` 閾捐矾**杩滅▼婵€娲绘彁鍙栫偣锛屼繚鐣欐父鎴忓畬鏁村弽棣堬紙骞挎挱/鐧界偣/閲戦锛夛紝骞舵彁渚涚ǔ瀹氱殑瑙勫垝椤哄簭銆佹墜鍔ㄦ帶鍒朵笌鍙€夎嚜鍔ㄦā寮忋€?
-## 瑙ｅ喅鐨勭棝鐐?- **杩滅▼婵€娲讳絾浠嶄繚鐣欏師鐢熷弽棣?*锛氫娇鐢ㄦ父鎴忓唴鍚屾牱鐨?OnClick 閫昏緫銆?- **鍙帶涓旂ǔ瀹氱殑婵€娲婚『搴?*锛氬噺灏戞潵鍥炶窇鍥剧殑鏃堕棿娴垂銆?- **瀹夊叏闃诲**锛氭湁婵€娲讳腑鐨勬彁鍙栫偣鏃朵笉浼氳Е鍙戞柊婵€娲汇€?- **澶氫汉鍙敤锛堜富鏈猴級**锛氬彂鐜伴€昏緫鍙€冭檻鎵€鏈夌帺瀹朵綅缃€?
-## 鍔熻兘鐗规€?- **鍘熺敓婵€娲?*锛氬弽灏勮皟鐢?`ExtractionPoint.OnClick()`銆?- **瑙勫垝椤哄簭**锛?  - 绗竴涓洰鏍囷細绂诲嚭鐢熺偣鏈€杩戠殑鎻愬彇鐐广€?  - 鍏朵綑鐐癸細浠庣帺瀹跺綋鍓嶄綅缃繘琛屸€滄渶杩戦偦鈥濇帓搴忋€?- **鍔ㄦ€佽鍒?*锛氭瘡娆¤Е鍙戞縺娲婚兘浼氶噸寤鸿鍒掗『搴忋€?- **瀹夊叏闃诲**锛氬瓨鍦ㄦ縺娲讳腑鐨勬彁鍙栫偣鏃朵笉婵€娲绘柊鐐广€?- **鍙戠幇杩囨护**锛歚DiscoverAllPoints=false` 鏃讹紝浠呭凡鍙戠幇鐐瑰彲婵€娲汇€?- **澶氫汉锛堜富鏈猴級**锛氬彂鐜伴€昏緫浣跨敤鎵€鏈夌帺瀹朵綅缃€?
-## 蹇嵎閿?- **F3**锛氭縺娲讳笅涓€鎻愬彇鐐癸紙鎸夎鍒掗『搴忥級
+这是一个轻量的 REPO BepInEx 模组，通过 **原生 ExtractionPoint.OnClick() 链路**远程激活提取点，保留完整游戏反馈（广播 + 标记 + 奖励），并提供稳定的规划顺序、手动控制与可选自动模式。
 
-## 閰嶇疆鏂囦欢
-`BepInEx\config\angelcomilk.repo_active.cfg`
+# 前言
 
-- `AutoActivate`锛坆ool锛夛細鑷姩鎸夊浐瀹氶棿闅旀縺娲汇€?- `ActivateNearest`锛圞eyCode锛夛細鎵嬪姩婵€娲绘寜閿紙榛樿 F3锛夈€?- `DiscoverAllPoints`锛坆ool锛夛細鏄惁瑙嗕负鍏ㄥ浘宸插彂鐜般€?
-## 鎵嬪姩涓庤嚜鍔?- **鎵嬪姩锛團3锛?*锛氳繍琛岃鍒?+ 瀹夊叏妫€鏌ワ紝浠呮縺娲讳竴涓偣銆?- **鑷姩**锛氬畾鏃惰Е鍙戝悓涓€濂?F3 閫昏緫锛堟棤鐗规畩璺緞锛夈€?
-## 婵€娲婚『搴忚鏄?1. 棣栨鑾峰彇鍙傝€冧綅缃椂璁板綍 **鍑虹敓鐐?*銆?2. 鏋勫缓绗﹀悎鏉′欢鐨勬彁鍙栫偣鍒楄〃锛堥伒瀹堝彂鐜拌繃婊わ級銆?3. 鍥哄畾 **绂诲嚭鐢熺偣鏈€杩戠殑鐐逛负绗竴涓洰鏍?*銆?4. 鍏朵綑鎸夆€滄渶杩戦偦鈥濅粠鐜╁浣嶇疆鎺掑簭銆?5. 鑻ュ凡鏈夋縺娲荤偣锛屽垯涓嶅啀婵€娲绘柊鐐广€?
-## 瀹夎锛坮2modman锛?1. 鍦?r2modman 涓鍏?zip銆?2. 纭繚 DLL 璺緞锛?   `BepInEx\plugins\REPO_Active\REPO_Active.dll`
+你是否因为 `R.E.P.O.` 复杂的地图与繁多的提取点而焦头烂额？这个模组可以帮助你减少跑图负担，并显著提升整体游戏体验。
 
-## 璇存槑
-- 澶氫汉鍙戠幇閫昏緫鐢?**涓绘満** 鎵ц锛屽鎴风涓嶅仛浣嶇疆鑱氬悎銆?- 鍙戠幇鎵弿闂撮殧鍦ㄦ瘡灞€寮€濮嬫椂鏍规嵁浜烘暟鍥哄畾锛屽噺灏戞€ц兘娑堣€椼€?
-## 浣滆€?**AngelcoMilk-澶╀娇妫?*
+## 解决的痛点
 
+- **远程激活但仍保持原生体验**：使用与游戏内交互一致的 OnClick 逻辑，效果与手动按下按钮一致。
+- **顺序可预期**：动态规划路径，减少反复折返；规划逻辑为：**出生点最近点固定为第一个**，其余点按玩家当前位置做**最近邻排序**，并确保**最后一个点为剩余点中最靠近出生点**。
+- **安全优先**：当已有提取点处于激活中时，不会启动新的激活。
+- **多人友好（主机）**：发现逻辑可结合所有玩家位置，由主机统一生效。
 
+## 功能特性
+- **原生激活**：反射调用 ExtractionPoint.OnClick()。
+- **规划顺序**：第一个目标为出生点最近的提取点，其余点按玩家当前位置的最近邻顺序排列。
+- **动态规划**：每次触发激活都会重新生成规划列表。
+- **安全闸门**：只有在**没有任何提取点处于激活中**时才会触发新的激活。
+- **发现过滤**：当 DiscoverAllPoints=false 时，仅已发现的点参与激活。
+- **多人（主机）**：发现逻辑使用**所有玩家位置**（仅主机）。
 
+## 快捷键
+- **F3**：激活下一个提取点（按规划列表顺序）
 
+## 配置文件
+BepInEx\config\angelcomilk.repo_active.cfg
+
+- AutoActivate（bool）：按固定间隔自动激活。
+- ActivateNearest（KeyCode）：手动激活按键（默认 F3）。
+- DiscoverAllPoints（bool）：是否视为全图已发现。
+
+## 手动与自动
+- **手动（F3）**：与自动模式使用相同规划与安全检查，一次只激活一个点。
+- **自动**：周期性触发同一套 F3 逻辑（无特殊激活路径）。
+
+## 选择下一个点的逻辑
+1. 从首次有效参考位置捕获**出生点坐标**。
+2. 构建符合条件的提取点列表（受发现过滤影响）。
+3. 固定**出生点最近的点为第一个目标**。
+4. 其余点按玩家当前位置进行**最近邻排序**。
+5. 若已有点处于激活中，则**不触发新激活**。
+
+## 安装（r2modman）
+1. 在 r2modman 中导入 zip。
+2. 确认 DLL 路径为：
+   BepInEx\plugins\REPO_Active\REPO_Active.dll
+
+## 说明
+- 多人发现逻辑仅在**主机端**执行，客户端不会聚合位置。
+- 发现扫描间隔在每局开始时会根据人数固定，降低性能开销。
+
+## 作者
+**AngelcoMilk-天使棉**
